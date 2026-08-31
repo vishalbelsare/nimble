@@ -8,13 +8,23 @@ requirements <- c(
     'mvtnorm',  ## needed for test-distributions.R
     'abind',    ## needed for test-compareMCMCs.R
     'ggplot2',  ## needed for test-compareMCMCs.R
-    'covr'      ## needed for code coverage reports
+    'covr',     ## needed for code coverage reports
+    'pracma',   ## for AD
+    'numDeriv',  ## for AD
+    'mcmcse',    ## for MCEM
+    'nimbleQuad' ## for laplace for MCEM test
+    # 'lme4'     ## for test-ADlaplace.R
     )     
 
 for (package in requirements) {
     if (!suppressPackageStartupMessages(require(package,
                                                 character.only = TRUE))) {
-        install.packages(package, repos = 'http://cran.us.r-project.org')
+        install.packages(package, repos = 'https://cran.r-project.org')
     }
 }
+
+## Apparently a bug in Matrix (as of early 2024) is causing an issue (https://bioconductor.org/packages/devel/bioc/vignettes/dreamlet/inst/doc/errors.html) that is causing test-ADlaplace.R failures when fitting a model with lmer.
+
+install.packages("lme4", type = "source")
+
 

@@ -9,13 +9,12 @@ options(warn = 1)
 nimbleVerboseSetting <- nimbleOptions('verbose')
 nimbleOptions(verbose = FALSE)
 
-context("Testing of math functions in NIMBLE code")
-
 source(system.file(file.path('tests', 'testthat', 'mathTestLists.R'), package = 'nimble'))
 
 set.seed(0)
 ans1 <- sapply(testsVaried, test_math, 'math')    ## 12
 ans2 <- sapply(testsBasicMath, test_math, 'math') ## 70
+
 if(.Platform$OS.type == 'windows') {
     message("Since you are running on Windows, tests stopped prior to reaching max DLL limit.  Please use test-math2 to continue")
     stop()
@@ -24,6 +23,7 @@ ans3 <- sapply(testsMoreMath, test_math, 'math')  ## 41
 ans4 <- sapply(testsReduction, test_math, 'math') ## 13
 ans5 <- sapply(testsComparison, test_math, 'math')## 12
 ans6 <- sapply(testsMatrix, test_math, 'math')    ## 19
+ans7 <- sapply(testsRecyclingRuleMatrices, test_math, 'math')
 
 options(warn = RwarnLevel)
 nimbleOptions(verbose = nimbleVerboseSetting)

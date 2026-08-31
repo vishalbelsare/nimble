@@ -1,5 +1,5 @@
 
-# Writing simple nimbleFunctions {#cha:RCfunctions}
+# Writing simple nimbleFunctions {#cha-RCfunctions}
 
 
 
@@ -24,7 +24,7 @@ can also be compiled.  Simple nimbleFunctions are useful for doing math or the o
 kinds of processing available in NIMBLE when no model or modelValues
 is needed. These can be used for any purpose in R programming.  They
 can also be used as new functions and distributions in NIMBLE's
-extension of BUGS (Chapter \@ref(cha:user-defined)).
+extension of BUGS (Chapter \@ref(cha-user-defined)).
 
 
   Here's a basic example implementing the textbook calculation of
@@ -83,7 +83,7 @@ Table \@ref(tab:coreR).
 ```{r, child = 'tables/coreRtableLong.md'}
 ```
 
-In addition to the above functions, we provide functions `any_na()` and `any_nan()` for finding if there are any `NA` or `NaN` values in a vector. These are equivalent to using `any(is.na())` and `any(is.nan())` in R.
+In addition to the above functions, we provide functions `any_na()` and `any_nan()` for finding if there are any `NA` or `NaN` values in a vector. These are equivalent to using `any(is.na())` and `any(is.nan())` in R, with the exception noted in the table above regarding `is.na()`.
 
 Other R functions with numeric arguments and return value can be called during compiled execution by wrapping them as a `nimbleRcall` (see Section \@ref(sec:calling-R-code)).
 
@@ -95,7 +95,7 @@ Next we cover some of these functions in more detail.
 floating-point (or 'double' [precision]), integer, or logical values, respectively.  The `length` argument specifies the vector 
 length (default 0), and the `value` argument specifies the initial 
  value either as a scalar (used for all vector elements, with default
- 0) or a vector. If a vector and its length is not equal to `length`, the remaining values will be zero, but we plan to implement R-style recycling in the next version of NIMBLE. The `init` argument specifies 
+ 0) or a vector. If a vector and its length is not equal to `length`, the remaining values will be filled by R-style recycling if the `recycle` argument is `TRUE` (which is the default). The `init` argument specifies 
 whether or not to initialize the elements in compiled code (default `TRUE`).  If
 first use of the variable does not rely on initial values,  using
 `init = FALSE` will yield slightly more efficient performance.
@@ -194,7 +194,7 @@ As in R (and nimbleFunctions), arguments are matched by order or by name
 (if given). Standard arguments to distribution functions in R
 (`log`, `log.p`, `lower.tail`) can be used and have the same
 defaults. User-defined distributions for BUGS (Chapter
-\@ref(cha:user-defined)) can also be used from
+\@ref(cha-user-defined)) can also be used from
 nimbleFunctions. 
 
 For standard distributions, we rely on R's regular help pages
@@ -228,15 +228,18 @@ Supported distributions, listed by their 'd' function, include:
   - `dweibull(x, shape, scale, log)`
   - `ddirch(x, alpha, log)`
   - `dlkj_corr_cholesky(x, shape, size, log)`
-  - `dmnorm_chol(x, mean, cholesky, prec_param, log)`
+  - `dmnorm_inv_ld(x, mean, mat, prec_param, log)` (AD)
+  - `dmnorm_chol(x, mean, cholesky, prec_param, log)` (non-AD)
   - `dmvt_chol(x, mu, cholesky, df, prec_param, log)`
   - `dwish_chol(x, cholesky, df, scale_param, log)`
+  - `dinvwish_chol(x, cholesky, df, scale_param, log)`
 
 
-
-In the last three, `cholesky` stands for Cholesky decomposition of the relevant matrix; 
+In the last four, `cholesky` stands for Cholesky decomposition of the relevant matrix; 
 `prec_param` is a logical indicating whether the Cholesky is of a
 precision matrix (TRUE) or covariance matrix (FALSE)^[For the multivariate t, these are more properly termed the 'inverse scale' and 'scale' matrices]; and `scale_param` is a logical indicating whether the Cholesky is of a scale matrix (TRUE) or an inverse scale matrix (FALSE).
+
+`dmnorm_inv_ld` is for use with AD (the standard `dmnorm_chol` results in very inefficient AD-based calculation). `prec_param` is a logical indicating whether `mat` is the precision matrix (TRUE) or covariance matrix (FALSE).
 
 ### Flow control: *if-then-else*, *for*,  *while*, and *stop* {#sec:basic-flow-control}
 
@@ -272,20 +275,76 @@ interrupt waiting to be handled, the process will stop and return control to R.
 
 ### Optimization: *optim* and *nimOptim*
 
-NIMBLE provides a `nimOptim` function that partially implement's R's
-`optim` function with some minor differences.  `nimOptim` supports
-optimization methods 'Nelder-Mead', 'BFGS', 'CG', 'L-BFGS-B', but does
-not support methods 'SANN' and 'Brent'. NIMBLE's `nimOptim` supports
-gradients using user-provided functions if available or finite differences
-otherwise, but it does not currently support Hessian computations. Currently
+NIMBLE provides a `nimOptim` function that partially implement's R's `optim`
+function with some minor differences. `nimOptim` can use methods from R's
+`optim`, including 'Nelder-Mead', 'BFGS', 'CG', 'L-BFGS-B', but it does not
+support methods 'SANN' and 'Brent'. As of version 1.2.0, it also allows users to
+provide their own optimization methods as R functions (although this feature is
+subject to change in future versions). Support for R's `nlminb` is provided in
+this way. NIMBLE's `nimOptim` allows gradients to be supplied using
+user-provided functions if available or finite differences otherwise. Currently
 `nimOptim` does not support extra parameters to the function being optimized
-(via `\dots`), but a work-around is to create a new `nimbleFunction` that
-binds those fixed parameters. Finally, `nimOptim` requires a `nimbleList`
-datatype for the `control` parameter, whereas R's `optim` uses a simple R
-`list`. To define the `control` parameter, create a default value with
-the `nimOptimDefaultControl` function, and set any desired fields. For
-example usage, see the unit tests in
-[tests/test-optim.R](https://github.com/nimble-dev/nimble/blob/master/packages/nimble/tests/testthat/test-optim.R).
+(via `\dots`), but a work-around is to create a new `nimbleFunction` that calls
+another one with the additional parameters. Finally, `nimOptim` requires a
+`nimbleList` datatype for the `control` parameter, whereas R's `optim` uses a
+simple R `list`. To define the `control` parameter, create a default value with
+the `nimOptimDefaultControl` function, and set any desired fields.
+
+See `help(nimOptim)` for details, including example usage. 
+
+### Integration: *integrate* and *nimIntegrate*
+
+NIMBLE provides a `nimIntegrate` function that implement's R's
+`integrate` function, which carries out adaptive Gauss-Kronrod
+quadrature to integrate a function of one variable over a finite
+or infinite interval.
+
+In addition to general use in a nimbleFunction, this can, of course, be used in
+a user-defined function in model code, e.g., to implement models that involve an
+integral, such as certain point process and survival models.
+
+One could also consider using `nimIntegrate` to numerically integrate over a
+parameter in a model, such as to remove a parameter that is not mixing well in
+an MCMC. Note that NIMBLE provides Laplace (and the closely-related adaptive Gauss-Hermite
+quadrature) approximation for integrating over continuous parameters such as random effects.
+See section \@ref(sec:AD-laplace) and `help(Laplace)` for more information on those.
+
+Here is an example of using `nimIntegrate` to implement a vectorized von Mises
+distribution.
+
+```{r}
+integrand <- nimbleFunction(
+    run = function(x = double(1), theta = double(1)) {
+        return( exp(theta[1] * cos(x) + theta[2] * cos(2 * (x + theta[3]))) )
+        returnType(double(1))
+})
+
+dGenVonMises <- nimbleFunction(
+  run = function(x = double(1), mu1 = double(), mu2 = double(),
+                 kappa1 = double(), kappa2 = double(),
+  limits = double(1), log = integer(0, default = 0)){
+    range <- limits[2] - limits[1]
+    mu1R <- (mu1 - range/2)/range*2*pi
+    mu2R <- (mu2 - range/2)/range*2*pi
+    z <- (x - range/2)/range*2*pi
+    d <- (mu1R - mu2R) %% pi
+    num <- exp(kappa1 * cos(z - mu1R) + kappa2 * cos(2 * (z - mu2R)))
+    tmp <- c(kappa1, kappa2, d)
+    den <- nimIntegrate(integrand, lower = 0, upper = 2*pi, tmp)[1]
+    dens <- num/den
+    result <- dens*2*pi/range
+    if(log) {
+        return(log(result))
+    } else return(result)
+    returnType(double(1))
+  }
+)
+
+cgvonmises <- compileNimble(dGenVonMises)
+x <- 0:360
+# plot(x, circular::dgenvonmises(circular(x, type = "angles", units = "degrees"), -1, 1, 2, 1))
+# plot(x, cgvonmises(x, mu1=20, mu2=300, kappa1=2, kappa2=1, limits = c(0, 360)), type = 'l')
+```
 
 ### 'nim' synonyms for some functions {#sec:altern-keyw-some}
 
@@ -315,6 +374,8 @@ replacements include
   - `switch` $\rightarrow$ `nimSwitch`
   - `numeric, integer, logical` $\rightarrow$ `nimNumeric, nimInteger, nimLogical`
   - `matrix, array` $\rightarrow$ `nimMatrix, nimArray`
+  - `optim` $\rightarrow$ `nimOptim`
+  - `integrate` $\rightarrow$ `nimIntegrate`
 
 
 
@@ -452,7 +513,7 @@ myfun <- nimbleFunction(
 
 In the line that creates `b`, the index range `i:i` is not
 evaluated until run time.  Even though `i:i` will always evaluate
-to simpy `i`, the compiler does not determine that.  Since there is
+to simply `i`, the compiler does not determine that.  Since there is
 a vector index range provided, the result of `randomValues[i:i]` is
 determined to be a vector.  The following line then creates `d` as
 a vector, because a vector plus a scalar returns a vector.  Another
@@ -497,11 +558,9 @@ vector will be treated as a matrix.
 Here is a guide to such issues.  Suppose `v1` and `v2` are vectors, and `M1` is a matrix.  Then
 
 
-  -  `v1 + M1` generates a compilation error unless one dimension of
-`M1` is known at compile-time to be 1.  If so, then `v1` is promoted to a
-1-row or 1-column matrix to conform with `M1`, and the result is a
-matrix of the same sizes.  This behavior occurs for
-all component-wise binary functions.
+  -  `v1 + M1` promotes `v1` to a 1-column matrix if `M1` is a one-column
+  matrix. Otherwise, this results in a run-time error.
+  This behavior occurs for all component-wise binary functions.
   - `v1 %*% M1` defaults to promoting `v1` to a 1-row matrix,
   unless it is known at compile-time that `M1` has 1 row, in which case
   `v1` is promoted to a 1-column matrix.

@@ -1,7 +1,5 @@
 source(system.file(file.path('tests', 'testthat', 'test_utils.R'), package = 'nimble'))
 
-context("Testing of dynamic indexing")
-
 RwarnLevel <- options('warn')$warn
 options(warn = 1)
 nimbleVerboseSetting <- nimbleOptions('verbose')
@@ -199,10 +197,64 @@ test_that("Testing multivariate normal-Wishart dependency conjugacy detection wi
                  info = "failed to detect dmnorm-dmnorm conjugacy in multivariate multi-conjugacy setting")
 })
 
+test_that("Testing full MVN-Wishart conjugacy  dynamic indexing for correct dependency detection", {    
+
+    code <- nimbleCode({
+        for ( i in 1:3 ) {
+            mu[1:J,i] ~ dmnorm(mu_mean[1:J], cov = mu_cov[1:J,1:J])
+            Sigma[1:J,1:J,i] ~ dinvwish(S = S[1:J, 1:J], df = df)
+        }
+        for ( k in 1:n ) {
+            d[k] ~ dcat(p[1:3])
+            y[1:J,k] ~ dmnorm(mu[1:J, d[k]], cov = Sigma[1:J,1:J, d[k]] )
+        }
+    })
+
+    set.seed(1)
+    n <- 5
+    J <- 2
+    constants <- list(n = n, J = J, mu_mean = rep(0, 2), S = diag(J), df = 20,
+                      mu_cov = diag(J), p = c(.499,.002,.499))
+    
+    Sigma_init <- array(c(2,.7,.7,2, 1,.5,.5,1,3,.7,.7,3), c(2,2,3))
+    inits <- list(d = c(1,3,1,3,1), mu = matrix(rnorm(J*3), J, 3), Sigma = Sigma_init)
+    data <- list(y = matrix(rnorm(J*n),J,n))
+
+    m <- nimbleModel(code, data = data, constants = constants, inits = inits)
+    conf <- configureMCMC(m)
+    mcmc <- buildMCMC(conf)
+    cm <- compileNimble(m)
+    cmcmc <- compileNimble(mcmc, project = m)
+
+    set.seed(1)
+    mcmc$run(1)
+    ## expect_identical(m$d, c(1,1,3,3,1))  # this is what we get but check is responsive to value of 'd'.
+    ## Check correct zero-ing out of non-deps. Multiplier for dmnorm actual deps should be identity matrix
+    ## and for dwish the value 1. Otherwise a zero matrix or a 0, respectively.
+    wh1 <- as.numeric(m$d == 1)
+    wh2 <- as.numeric(m$d == 2)
+    wh3 <- as.numeric(m$d == 3)
+    expect_identical(mcmc$samplerFunctions[[6]]$dep_dmnorm_identity_coeff,
+                     array(c(wh1,rep(0,10),wh1), c(5,2,2)))
+    expect_identical(mcmc$samplerFunctions[[7]]$dep_dmnorm_identity_coeff,
+                     array(c(wh2,rep(0,10),wh2), c(5,2,2)))
+    expect_identical(mcmc$samplerFunctions[[8]]$dep_dmnorm_identity_coeff,
+                     array(c(wh3,rep(0,10),wh3), c(5,2,2)))
+    expect_identical(mcmc$samplerFunctions[[9]]$dep_dmnorm_identity_coeff,
+                     array(wh1, 5))
+    expect_identical(mcmc$samplerFunctions[[10]]$dep_dmnorm_identity_coeff,
+                     array(wh2, 5))
+    expect_identical(mcmc$samplerFunctions[[11]]$dep_dmnorm_identity_coeff,
+                     array(wh3, 5))
+})
+
+
 test_that("Testing multivariate normal-Wishart dependency conjugacy detection with dynamic indexing", {
     ## Note this is a strange model in terms of conjugacy as y depends on only
     ## one element of mu[1:3,i], but our dynamic calculation of offset and coeff
     ## should resolve that properly.
+    ## Update: we do not detect this conjugacy.  The checking is being made more strict,
+    ## to prevent 'false' detections of conjugate relationships (-DT April 2023)
     code = nimbleCode({
         y[1:3] ~ dmnorm(mu[k, 1:3], pr[1:3,1:3])
         pr[1:3,1:3] ~ dwish(pr0[1:3,1:3], 5)
@@ -213,8 +265,7 @@ test_that("Testing multivariate normal-Wishart dependency conjugacy detection wi
     m = nimbleModel(code, inits = list(k = 1, pr0 = diag(3), pr = diag(3),
                                        z = rep(1,3)), data = list(y = rep(0,3)))
     conf <- configureMCMC(m)
-    expect_match(conf$getSamplers()[[3]]$name, "conjugate_dmnorm_dmnorm",
-            info = "failed to detect dmnorm-dmnorm conjugacy in multivariate crossed multi-conjugacy setting")
+    expect_match(conf$getSamplers()[[3]]$name, "RW_block")
 })
 
 test_that("Testing normal-normal-IG multi-index multi-conjugacy detection with dynamic indexing", {    
@@ -233,9 +284,9 @@ test_that("Testing normal-normal-IG multi-index multi-conjugacy detection with d
     m = nimbleModel(code, data = list(y = array(rnorm(2*2*3), c(2,3,2))),
                     inits = list(k1 = rep(0,2)))
     conf <- configureMCMC(m)
-    expect_match(conf$getSamplers()[[3]]$name, "conjugate_dnorm_dnorm",
+    expect_match(conf$getSamplers()[[1]]$name, "conjugate_dnorm_dnorm",
                  info = "failed to detect normal-normal conjugacy")
-    expect_match(conf$getSamplers()[[13]]$name, "conjugate_dinvgamma_dnorm",
+    expect_match(conf$getSamplers()[[5]]$name, "conjugate_dinvgamma_dnorm",
                  info = "failed to detect invgamma-normal conjugacy")
 })
 
@@ -409,9 +460,9 @@ test_that('basic mixture model without conjugacy', {
     n <- 1000; d <- 4
     set.seed(2)
     mns <- c(8, 15, 0.5, 4)
-    mu_tol <- c(1.5, 1, .5, .8)
+    mu_tol <- c(2, 1.5, .5, 1)
     p <- c(.45, .14, .05, .36)
-    p_tol <- c(.12, .05, .03, .12)
+    p_tol <- c(.12, .05, .03, .15)
     k <- sample(1:d, n, replace = TRUE, prob = p)
     y <- rpois(n, mns[k])
     code <- nimbleCode({
@@ -489,6 +540,30 @@ test_that('range checking with dynamic indexing', {
     expect_silent(output <- m$calculate())
     
 })
+
+test_that('detect non-scalar dynamic indexing with derivs', {
+    code <- nimbleCode({
+        y ~ dcat(p[z,1:2])
+        for(i in 1:5)
+            p[i,1:2] ~ ddirch(w[1:2])
+        z ~ dcat(q[1:5])
+        
+    })
+    expect_error(m <- nimbleModel(code, inits = list(z=1), buildDerivs=TRUE),
+                 "found dynamic indexing")
+    
+    code <- nimbleCode({
+        for(i in 1:10) {
+            y[i,1:3] ~ dmnorm(mu[1:3, z[i]], pr[1:3,1:3])
+            z[i] ~ dcat(q[1:4])
+        }
+        for(i in 1:4)
+            mu[1:3, i] ~ dmnorm(mn[1:3],pr[1:3,1:3])
+    })
+    expect_error(m <- nimbleModel(code, inits = list(z = rep(1, 10)), buildDerivs=TRUE),
+                 "found dynamic indexing")
+})
+
 
 
 if(FALSE) {

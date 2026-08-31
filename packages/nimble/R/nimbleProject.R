@@ -72,7 +72,102 @@ modelDefInfoClass <- setRefClass('modelDefInfoClass',
     fields = list(
         labelMaker = 'ANY'
     )
-)
+    )
+
+compileModel_impl <- function(.self,
+                              model,
+                              filename,
+                              control,
+                              showCompilerOutput,
+                              where) {
+    disableWrite <- FALSE
+    if(getNimbleOption('enableSpecialHandling')) {
+        filenames <- filenameFromSpecialHandling(model)
+        if(!is.null(filenames)) {
+            filename <- filenames$filename
+            nfFileName <- filenames$nfFileName
+            disableWrite <- TRUE
+        }
+    }
+    if(is.character(model)) {
+        tmp <- models[[model]]
+        if(is.null(tmp)) stop(paste0("Model provided as name: ", model, " but it is not in this project."), call. = FALSE)
+        model <- tmp
+    } else .self$addModel(model)
+    
+    modelDef <- model$getModelDef()
+    modelDefName <- modelDef$name
+    Cname <- Rname2CppName(modelDefName)
+    if(!disableWrite) {
+        if(is.null(filename)) {
+            filename <- paste0(.self$projectName, '_', Rname2CppName(modelDefName)) 
+        }
+        nfFileName <- paste0(.self$projectName, '_', Rname2CppName(modelDefName),'_nfCode')
+    }
+    modelCpp <- cppBUGSmodelClass(modelDef = modelDef, model = model,
+                                  name = Cname, project = .self)
+    ## buildAll will call back to the project to add its nimbleFunctions 
+    modelCpp$buildAll(buildNodeDefs = TRUE, where = where, control = control)
+    
+    cppProj <- cppProjectClass(dirName = .self$dirName)
+    .self$cppProjects[[ modelDefName ]] <- cppProj
+    ## genModelValuesCppClass will back to the project to add its mv class
+    mvc <- modelCpp$genModelValuesCppClass()
+    ##if(is.null(filename)) filename <- paste0(projectName, '_', modelDefName)
+    cppProj$addClass(mvc, filename = filename)
+    cppProj$addClass(modelCpp, modelDefName, filename)
+
+    buildDerivsForThisModel <- isTRUE(modelDef[["buildDerivs"]]) # could check getNimbleOption("enableDerivs") but why?
+    
+    if(buildDerivsForThisModel) {
+        CnameAD <- paste0(Cname,"_AD")
+        modelCppAD <- cppBUGSmodelClass(modelDef = modelDef, model = model,
+                                        name = CnameAD, project = .self)
+        modelCppAD$CmodelValuesClassName <- paste0(modelCppAD$CmodelValuesClassName, "_AD")
+        modelCppAD$buildAll(buildNodeDefs = FALSE, where = where, control = control, forAD = TRUE)
+        modelDefNameAD <- paste0(modelDefName, "_AD")
+         ## This ensures we don't get the same mv definition as for the regular model
+        mvClassName <- environment(modelDef$modelValuesClass)$className
+        environment(modelDef$modelValuesClass)$className <- modelCppAD$CmodelValuesClassName
+        mvcAD <- .self$needModelValuesCppClass(modelDef$modelValuesClass, fromModel = TRUE, forAD = TRUE)
+        cppProj$addClass(mvcAD, filename = filename)
+        cppProj$addClass(modelCppAD, modelDefNameAD, filename)
+        environment(modelDef$modelValuesClass)$className <- mvClassName
+        NULL
+   }
+    
+    ##if compileNodes
+    ##nfFileName <- paste0(projectName, '_', Rname2CppName(modelDefName),'_nfCode')
+    for(i in names(modelCpp$nodeFuns)) {
+        cppProj$addClass(modelCpp$nodeFuns[[i]], filename = nfFileName)
+    }
+    if(control$writeFiles) {
+        if(!disableWrite) {
+            cppProj$writeFiles(filename)
+            cppProj$writeFiles(nfFileName) ## if compileNodes
+        }
+    } else return(cppProj)
+    if(control$compileCpp) {
+        compileList <- filename
+        compileList <- c(compileList, nfFileName) ## if compileNodes
+        cppProj$compileFile(compileList, showCompilerOutput)
+    } else return(cppProj)
+    if(control$loadSO) {
+        ## if loadSO
+        cppProj$loadSO(filename)
+    } else return(cppProj)
+    ## if buildInterface
+    interfaceName <- paste0('C', modelDefName)
+    
+    compiledModel <- modelCpp ## cppProj$cppDefs[[2]]
+    newCall <- paste0('new_',Rname2CppName(modelDefName))
+    ans <- buildModelInterface(interfaceName, compiledModel, newCall,
+                               buildDerivs = buildDerivsForThisModel,
+                               where = where, project = .self, dll = cppProj$dll)
+    createModel <- TRUE
+    if(!createModel) return(ans) else return(ans(model, where, dll = cppProj$dll))
+    ## creating the model populates model$CobjectInterface
+}
 
 nimbleProjectClass <- setRefClass('nimbleProjectClass',
     fields = list(
@@ -310,7 +405,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
             inProjectAlready <- nf_getRefClassObject(fun)[['nimbleProject']]
             if(!is.null(inProjectAlready)) {
                 if(!identical(inProjectAlready, .self)) stop('Trying to add a specialized nimbleFunction to a project, but it is already part of another project. \nIf you did not specify a project, this error can occur in trying to create a new project -- you likely need to specify the relevant model as the project.\nIf you are recompiling, try redefining models and specialized nimbleFunctions. (The reset option works now for nimbleFunctions but not models.)', call. = FALSE)
-                else warning('Adding a specialized nimbleFunction to a project to which it already belongs', call. = FALSE)
+                else warning('Adding a specialized nimbleFunction to a project to which it already belongs.', call. = FALSE)
             }
             generatorName <- nfGetDefVar(fun, 'name')
             if(is.null(nfCompInfos[[generatorName]])) {
@@ -325,7 +420,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
                 assign('name', nfCompInfos[[generatorName]]$labelMaker(), envir = nf_getRefClassObject(fun))
             } else {
                 if(!is.null(nimbleFunctions[[ nf_getRefClassObject(fun)$name ]])) {
-                    stop('nimbleFunction provided to project has same name as another one in the same project', call. = FALSE)
+                    stop('nimbleFunction provided to project has same name as another one in the same project.', call. = FALSE)
                 }
             }
             nimbleFunctions[[ nf_getRefClassObject(fun)$name ]] <<- fun
@@ -360,7 +455,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
           inProjectAlready <- nl[['nimbleProject']]
           if(!is.null(inProjectAlready)) {
             if(!identical(inProjectAlready, .self)) stop('Trying to add a specialized nimbleList to a project, but it is already part of another project. \nIf you did not specify a project, this error can occur in trying to create a new project -- you likely need to specify the relevant model as the project.\nIf you are recompiling, try redefining models and specialized nimbleFunctions and nimbleLists.', call. = FALSE)
-            else warning('Adding a specialized nimbleList to a project to which it already belongs', call. = FALSE)
+            else warning('Adding a specialized nimbleList to a project to which it already belongs.', call. = FALSE)
           }
 
           ## Next two lines can become addNimbleListGen, but would have to migrate recursion out of compileNimbleList
@@ -435,9 +530,9 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
             }
             cppClass
         },
-        compileRCfun = function( fun, filename = NULL, initialTypeInference = FALSE, control = list(debug = FALSE, debugCpp = FALSE, writeFiles = TRUE, returnAsList = FALSE), showCompilerOutput = nimbleOptions('showCompilerOutput')) {
+        compileRCfun = function( fun, filename = NULL, initialTypeInference = FALSE, control = list(debug = FALSE, debugCpp = FALSE, writeFiles = TRUE, returnAsList = FALSE), showCompilerOutput = getNimbleOption('showCompilerOutput')) {
             disableWrite <- FALSE
-            if(nimbleOptions('enableSpecialHandling')) {
+            if(getNimbleOption('enableSpecialHandling')) {
                 SH <- filenameFromSpecialHandling(fun)
                 if(!is.null(filename)) {
                     filename <- SH
@@ -465,7 +560,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
             RCfunCppInterfaces[[className]] <<- cppClass$buildRwrapperFunCode(includeLHS = FALSE, eval = TRUE, returnArgsAsList = control$returnAsList, dll = cppProj$dll)
             RCfunCppInterfaces[[className]]
         },
-        needModelValuesCppClass = function(mvConf, fromModel = FALSE) {
+        needModelValuesCppClass = function(mvConf, fromModel = FALSE, forAD = FALSE) {
             if(!isModelValuesConf(mvConf)) stop("Can't compileModelValues: mvConf is not a modelValuesConf", call. = FALSE)
             mvClassName <- environment(mvConf)$className
             mvInfo <- mvInfos[[mvClassName]]
@@ -475,8 +570,8 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
                 cppClass <- cppModelValuesClass(name = mvClassName,
                                                    vars = environment(mvConf)$symTab,
                                                    project = .self)
-                cppClass$buildAll()
-                 mvInfos[[mvClassName]]$cppClass <<- cppClass
+                cppClass$buildAll(forAD = forAD)
+                mvInfos[[mvClassName]]$cppClass <<- cppClass
             }
             cppClass
         },
@@ -488,7 +583,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
             sym = if(!is.null(dll))
                 getNativeSymbolInfo(generatorName, dll)
             else {
-                warning('a nimbleFunctionInterface is about to build a CmodelValues without dll info, based on generatorFun name only.', call. = FALSE)
+                warning('A nimbleFunctionInterface is about to build a CmodelValues without dll info, based on generatorFun name only.', call. = FALSE)
                 generatorName
             }
             ans <- CmodelValues(sym, dll = dll)
@@ -496,71 +591,17 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
             mv$CobjectInterface <- ans
             ans
         },
-        compileModel = function(model, filename = NULL,
-                                control = list(debug = FALSE, debugCpp = FALSE, writeFiles = TRUE, compileCpp = TRUE, loadSO = TRUE), showCompilerOutput = nimbleOptions('showCompilerOutput'), where = globalenv()) {
-            disableWrite <- FALSE
-            if(nimbleOptions('enableSpecialHandling')) {
-                filenames <- filenameFromSpecialHandling(model)
-                if(!is.null(filenames)) {
-                    filename <- filenames$filename
-                    nfFileName <- filenames$nfFileName
-                    disableWrite <- TRUE
-                }
-            }
-            if(is.character(model)) {
-                tmp <- models[[model]]
-                if(is.null(tmp)) stop(paste0("Model provided as name: ", model, " but it is not in this project."), call. = FALSE)
-                model <- tmp
-            } else addModel(model)
-                                                 
-            modelDef <- model$getModelDef()
-            modelDefName <- modelDef$name
-            Cname <- Rname2CppName(modelDefName)
-            if(!disableWrite) {
-                if(is.null(filename)) {
-                    filename <- paste0(projectName, '_', Rname2CppName(modelDefName)) 
-                }
-                nfFileName <- paste0(projectName, '_', Rname2CppName(modelDefName),'_nfCode')
-            }
-            modelCpp <- cppBUGSmodelClass(modelDef = modelDef, model = model,
-                                          name = Cname, project = .self)
-            ## buildAll will call back to the project to add its nimbleFunctions 
-            modelCpp$buildAll(buildNodeDefs = TRUE, where = where, control = control)
-            
-            cppProj <- cppProjectClass(dirName = dirName)
-            cppProjects[[ modelDefName ]] <<- cppProj
-            ## genModelValuesCppClass will back to the project to add its mv class
-            mvc <- modelCpp$genModelValuesCppClass()
-            cppProj$addClass(mvc, filename = filename)
-            cppProj$addClass(modelCpp, modelDefName, filename)
-            ##if compileNodes
-            for(i in names(modelCpp$nodeFuns)) {
-                cppProj$addClass(modelCpp$nodeFuns[[i]], filename = nfFileName)
-            }
-            if(control$writeFiles) {
-                if(!disableWrite) {
-                    cppProj$writeFiles(filename)
-                    cppProj$writeFiles(nfFileName) ## if compileNodes
-                }
-            } else return(cppProj)
-            if(control$compileCpp) {
-                compileList <- filename
-                compileList <- c(compileList, nfFileName) ## if compileNodes
-                cppProj$compileFile(compileList, showCompilerOutput)
-            } else return(cppProj)
-            if(control$loadSO) {
-                ## if loadSO
-                cppProj$loadSO(filename)
-            } else return(cppProj)
-            ## if buildInterface
-            interfaceName <- paste0('C', modelDefName)
-            
-            compiledModel <- modelCpp ## cppProj$cppDefs[[2]]
-            newCall <- paste0('new_',Rname2CppName(modelDefName))
-            ans <- buildModelInterface(interfaceName, compiledModel, newCall, where = where, project = .self, dll = cppProj$dll)
-            createModel <- TRUE
-            if(!createModel) return(ans) else return(ans(model, where, dll = cppProj$dll))
-            ## creating the model populates model$CobjectInterface
+        compileModel = function(model,
+                                filename = NULL,
+                                control = list(debug = FALSE, debugCpp = FALSE, writeFiles = TRUE, compileCpp = TRUE, loadSO = TRUE),
+                                showCompilerOutput = getNimbleOption('showCompilerOutput'),
+                                where = globalenv()) {
+            compileModel_impl(.self,
+                              model = model,
+                              filename = filename,
+                              control = control,
+                              showCompilerOutput = showCompilerOutput,
+                              where = where)
         },
         ## nimbleList functions
         addNestedNls = function(nl){
@@ -591,7 +632,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
                     nlList <- nl
                     ## set generator
                 } else {
-                    if(!is.nl(nl)) stop(paste0("nl argument provided is not a nimbleList."), call. = FALSE)
+                    if(!is.nl(nl)) stop("nl argument provided is not a nimbleList.", call. = FALSE)
                     nlList <- list(nl)
                     className <- nl$nimbleListDef$className
                     ## set generator
@@ -614,7 +655,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
                                 if(reset) {
                                     nimbleLists[[thisName]] <<- NULL
                                 } else {
-                                    if(!identical(nlList[[i]], tmp)) stop('Trying to compile something with same name as previously added nimbleList that is not the same thing')
+                                    if(!identical(nlList[[i]], tmp)) stop('Trying to compile something with same name as previously added nimbleList that is not the same thing.')
                                     addNL <- FALSE
                                 }
                             }
@@ -843,7 +884,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
             if(is.null(nlCppDef$CmultiInterface)) ok <- FALSE
             else ans <- nlCppDef$CmultiInterface$addInstance(nl, dll = dllToUse)
           }
-          if(!ok) stop("Oops, there is something in this compilation job that doesn\'t fit together.  This can happen in some cases if you are trying to compile new pieces into an exising project.  If that is the situation, please try including \"resetFunctions = TRUE\" as an argument to compileNimble.  Alternatively please try rebuilding the project from the beginning with more pieces in the same call to compileNimble.  For example, if you are compiling multiple algorithms for the same model in multiple calls to compileNimble, try compiling them all with one call.", call. = FALSE) 
+          if(!ok) stop("There is something in this compilation job that doesn\'t fit together. This can happen in some cases if you are trying to compile new pieces into an existing project.If that is the situation, please try including \"resetFunctions = TRUE\" as an argument to compileNimble. Alternatively please try rebuilding the project from the beginning with more pieces in the same call to compileNimble. For example, if you are compiling multiple algorithms for the same model in multiple calls to compileNimble, try compiling them all with one call.", call. = FALSE) 
           ans
         },
         instantiateNimbleFunction = function(nf, dll, asTopLevel = TRUE) { ## called by cppInterfaces_models and cppInterfaces_nimbleFunctions
@@ -858,7 +899,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
                 ans <- nfCppDef$buildCallable(nf, dll = dll, asTopLevel = asTopLevel)
                 ok <- !is.null(ans)
             }
-            if(!ok) stop("Oops, there is something in this compilation job that doesn\'t fit together.  This can happen in some cases if you are trying to compile new pieces into an exising project.  If that is the situation, please try including \"resetFunctions = TRUE\" as an argument to compileNimble.  Alternatively please try rebuilding the project from the beginning with more pieces in the same call to compileNimble.  For example, if you are compiling multiple algorithms for the same model in multiple calls to compileNimble, try compiling them all with one call.", call. = FALSE) 
+            if(!ok) stop("There is something in this compilation job that doesn\'t fit together.  This can happen in some cases if you are trying to compile new pieces into an existing project.  If that is the situation, please try including \"resetFunctions = TRUE\" as an argument to compileNimble.  Alternatively please try rebuilding the project from the beginning with more pieces in the same call to compileNimble.  For example, if you are compiling multiple algorithms for the same model in multiple calls to compileNimble, try compiling them all with one call.", call. = FALSE) 
 
             ans
         },
@@ -883,7 +924,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
         },
         compileNimbleFunctionMulti = function(funList, isNode = FALSE, filename = NULL, initialTypeInferenceOnly = FALSE,
             control = list(debug = FALSE, debugCpp = FALSE, compileR = TRUE, writeFiles = TRUE, compileCpp = TRUE, loadSO = TRUE),
-            reset = FALSE, returnCppClass = FALSE, where = globalenv(), fromModel = FALSE, generatorFunNames = NULL, alreadyAdded = FALSE, showCompilerOutput = nimbleOptions('showCompilerOutput')) {
+            reset = FALSE, returnCppClass = FALSE, where = globalenv(), fromModel = FALSE, generatorFunNames = NULL, alreadyAdded = FALSE, showCompilerOutput = getNimbleOption('showCompilerOutput')) {
             if(!is.list(funList)) stop('funList in compileNimbleFunctionMulti should be a list', call. = FALSE)
             allGeneratorNames <- if(is.null(generatorFunNames)) lapply(funList, nfGetDefVar, 'name') else generatorFunNames
             uniqueGeneratorNames <- unique(allGeneratorNames)
@@ -913,7 +954,7 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
         },
         compileNimbleFunction = function(fun, isNode = FALSE, filename = NULL, initialTypeInferenceOnly = FALSE,
             control = list(debug = FALSE, debugCpp = FALSE, compileR = TRUE, writeFiles = TRUE, compileCpp = TRUE, loadSO = TRUE),
-            reset = FALSE, returnCppClass = FALSE, where = globalenv(), fromModel = FALSE, generatorName = NULL, alreadyAdded = FALSE, showCompilerOutput = nimbleOptions('showCompilerOutput')) {
+            reset = FALSE, returnCppClass = FALSE, where = globalenv(), fromModel = FALSE, generatorName = NULL, alreadyAdded = FALSE, showCompilerOutput = getNimbleOption('showCompilerOutput')) {
           if(is.character(fun)) {
                 tmp <- nimbleFunctions[[fun]]
                 if(is.null(tmp)) stop(paste0("nimbleFunction name ", fun, " not recognized in this project."), call. = FALSE)
@@ -1020,9 +1061,24 @@ nimbleProjectClass <- setRefClass('nimbleProjectClass',
     )
 )
 
+#' Clear compiled objects from a project and unload shared library
+#'
+#' Clear all compiled objects from a project and unload the shared library produced by the C++ compiler. Has no effect on Windows.
+#' 
+#' @param obj A compiled nimbleFunction or nimble model
+#'
+#' @details
+#'
+#' This will clear all compiled objects associated with your NIMBLE project.  For example, if \code{cModel} is a compiled model, \code{clearCompiled(cModel)} will clear both the model and all associated nimbleFunctions such as compiled MCMCs that use that model.
+#'
+#' Use of this function can be dangerous.  There is some risk that if you have copies of the R objects that interfaced to compiled C++ objects that have been removed, and you attempt to use those R objects after clearing their compiled counterparts, you will crash R.  We have tried to minimize that risk, but we can't guarantee safe behavior.
+#' 
+#' @export
 clearCompiled <- function(obj) { # for now just take one obj as input
-    np <- getNimbleProject(obj)
-    np$clearCompiled()
+    if(.Platform$OS.type != "windows") {
+        np <- getNimbleProject(obj)
+        np$clearCompiled()
+    }
 }
 
 #' compile NIMBLE models and nimbleFunctions
@@ -1050,7 +1106,7 @@ clearCompiled <- function(obj) { # for now just take one obj as input
 #'
 #' The control list can contain the following named elements, each with \code{TRUE} or \code{FALSE}: debug, which sets a debug mode for the compiler for development purposes; debugCpp, which inserts an output message before every line of C++ code for debugging purposes; compileR, which determines whether the R-only steps of compilation should be executed; writeCpp, which determines whether the C++ files should be generated; compileCpp, which determines whether the C++ should be compiled;  loadSO, which determines whether the DLL or shared object should be loaded and interfaced; and returnAsList, which determines whether calls to the compiled nimbleFunction should return only the returned value of the call (\code{returnAsList = FALSE}) or whether a list including the input arguments, possibly modified, should be returned in a list with the returned value of the call at the end (\code{returnAsList = TRUE}).  The control list is mostly for developer use, although \code{returnAsArgs} may be useful to a user.  An example of developer use is that one can have the compiler write the C++ files but not compile them, then modify them by hand, then have the C++ compiler do the subsequent steps without over-writing the files.
 #'
-#' See the NIMBLE \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} Manual for examples
+#' See the NIMBLE \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} Manual for examples
 #' 
 #' @return If there is only one compilation unit (one model or nimbleFunction), an R interface object is returned.  This object can be used like the uncompiled model or nimbleFunction, but execution will call the corresponding compiled objects or functions.  If there are multiple compilation units, they will be returned as a list of interface objects, in the order provided.  If names were included in the arguments, or in a list if any elements of \code{...} are lists, those names will be used for the corresponding element of the returned list.  Otherwise an attempt will be made to generate names from the argument code.  For example \code{compileNimble(A = fun1, B = fun2, project = myModel)} will return a list with named elements A and B, while \code{compileNimble(fun1, fun2, project = myModel)} will return a list with named elements fun1 and fun2.
 #'
@@ -1059,7 +1115,7 @@ clearCompiled <- function(obj) { # for now just take one obj as input
 compileNimble <- function(..., project, dirName = NULL, projectName = '',
                           control = list(),
                           resetFunctions = FALSE, 
-			  showCompilerOutput = nimbleOptions('showCompilerOutput')) {
+			  showCompilerOutput = getNimbleOption('showCompilerOutput')) {
 ## 1. Extract compilation items
     reset <- FALSE
     ## This pulls out ... arguments, makes names from their expressions if names weren't provided, and combines them with any ... arguments that are lists.
@@ -1082,8 +1138,8 @@ compileNimble <- function(..., project, dirName = NULL, projectName = '',
 
     ## 2. Get project or make new project
     if(missing(project)) {
-        if(reset) warning("reset = TRUE but no project was provided.  If you are trying to re-compiled something into the same project, give it as the project argument as well as a compilation item. For example, 'compileNimble(myFunction, project = myFunction, reset = TRUE)'")
-        if(!is.null(nimbleOptions()$nimbleProject)) project <- nimbleOptions()$nimbleProject
+        if(reset) warning("You requested 'reset = TRUE', but no project was provided.  If you are trying to re-compiled something into the same project, give it as the project argument as well as a compilation item. For example, 'compileNimble(myFunction, project = myFunction, reset = TRUE)'.")
+        if(!is.null(getNimbleOption('nimbleProject'))) project <- getNimbleOption('nimbleProject')
         else project <- nimbleProjectClass(dirName, name = projectName)
 
         ## Check for uncompiled models.
@@ -1104,14 +1160,15 @@ compileNimble <- function(..., project, dirName = NULL, projectName = '',
     for(i in names(controlDefaults)) {
         if(!i %in% names(control)) control[[i]] <- controlDefaults[[i]]
     }
-    
+
+    nimbleUserNamespace$.checkedNames <- new.env()  # Memoization for checking nf name conflicts in `checkNameConflict()`.
 
     ## Units should be either Rmodel, nimbleFunction, or RCfunction (now coming from nimbleFunction with no setup)
-    if(nimbleOptions('verbose') && !showCompilerOutput) {
-        message("Compiling\n  [Note] This may take a minute.\n  [Note] Use 'showCompilerOutput = TRUE' to see C++ compilation details.")
+    if(!showCompilerOutput) {
+        messageIfVerbose("Compiling\n  [Note] This may take a minute.\n  [Note] Use 'showCompilerOutput = TRUE' to see C++ compilation details.")
     }
-    if(nimbleOptions('verbose') && showCompilerOutput) {
-        message("Compiling\n  [Note] This may take a minute.\n  [Note] On some systems there may be some compiler warnings that can be safely ignored.")
+    if(showCompilerOutput) {
+        messageIfVerbose("Compiling\n  [Note] This may take a minute.\n  [Note] On some systems there may be some compiler warnings that can be safely ignored.")
     }
 
     ## Compile models first
@@ -1120,6 +1177,12 @@ compileNimble <- function(..., project, dirName = NULL, projectName = '',
     if(sum(rcfUnits) > 0) {
         whichUnits <- which(rcfUnits)
         for(i in whichUnits) {
+            if(isTRUE(getNimbleOption("enableDerivs"))) {
+              if(!isFALSE(environment(units[[i]])$nfMethodRCobject$buildDerivs))
+                stop(paste0("A nimbleFunction without setup code and with buildDerivs = TRUE can't be included\n",
+                            "directly in a call to compileNimble.  It can be called by another nimbleFunction and,\n",
+                            "in that case, will be automatically compiled."))
+            }
             ans[[i]] <- project$compileRCfun(units[[i]], control = control, showCompilerOutput = showCompilerOutput)
             if(names(units)[i] != '') names(ans)[i] <- names(units)[i]
         }

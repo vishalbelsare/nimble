@@ -12,6 +12,7 @@ BUGSmodel <- function(code,
                       debug = FALSE,
                       check = getNimbleOption('checkModel'),
                       calculate = TRUE,
+                      buildDerivs = getNimbleOption('buildModelDerivs'),
                       userEnv = parent.frame()) {
     nimbleModel(code = code,
                 constants = constants,
@@ -23,14 +24,15 @@ BUGSmodel <- function(code,
                 check = check,
                 calculate = calculate,
                 name = name,
+                buildDerivs = buildDerivs,
                 userEnv = userEnv)
 }
 
 
 
-#' Create a NIMBLE model from BUGS code
+#' Create a NIMBLE model from model code
 #'
-#' processes BUGS model code and optional constants, data, and initial values. Returns a NIMBLE model (see \code{\link{modelBaseClass}}) or model definition.
+#' Processes model code and optional constants, data, and initial values. Returns a NIMBLE model (see \code{\link{modelBaseClass}}) or model definition.
 #'
 #' @param code code for the model in the form returned by \code{\link{nimbleCode}} or (equivalently) \code{\link{quote}}
 #' @param constants named list of constants in the model.  Constants cannot be subsequently modified. For compatibility with JAGS and BUGS, one can include data values with constants and \code{\link{nimbleModel}} will automatically distinguish them based on what appears on the left-hand side of expressions in \code{code}.
@@ -43,13 +45,14 @@ BUGSmodel <- function(code,
 #' @param check logical indicating whether to check the model object for missing or invalid values.  Default is given by the NIMBLE option 'checkModel'.  See \code{\link{nimbleOptions}} for details.
 #' @param calculate logical indicating whether to run \code{\link{calculate}} on the model after building it; this will calculate all deterministic nodes and logProbability values given the current state of all nodes. Default is TRUE. For large models, one might want to disable this, but note that deterministic nodes, including nodes introduced into the model by NIMBLE, may be \code{NA}. 
 #' @param name optional character vector giving a name of the model for internal use.  If omitted, a name will be provided.
-#' @param userEnv environment in which if-then-else statements in BUGS code will be evaluated if needed information not found in \code{constants}; intended primarily for internal use only
+#' @param buildDerivs logical indicating whether to build derivative capabilities for the model.
+#' @param userEnv environment in which if-then-else statements in model code will be evaluated if needed information not found in \code{constants}; intended primarily for internal use only
 #' @author NIMBLE development team
 #' @export
 #' @details
-#' See the \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} or \code{help(\link{modelBaseClass})} for information about manipulating NIMBLE models created by \code{\link{nimbleModel}}, including methods that operate on models, such as \code{\link{getDependencies}}.
+#' See the \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} or \code{help(\link{modelBaseClass})} for information about manipulating NIMBLE models created by \code{\link{nimbleModel}}, including methods that operate on models, such as \code{\link{getDependencies}}.
 #'
-#' The user may need to provide dimensions for certain variables as in some cases NIMBLE cannot automatically determine the dimensions and sizes of variables. See the \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} for more information.
+#' The user may need to provide dimensions for certain variables as in some cases NIMBLE cannot automatically determine the dimensions and sizes of variables. See the \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} for more information.
 #'
 #' As noted above, one may lump together constants and data (as part of the \code{constants} argument (unlike R interfaces to JAGS and BUGS where they are provided as the \code{data} argument). One may not provide lumped constants and data as the \code{data} argument.
 #'
@@ -76,6 +79,7 @@ nimbleModel <- function(code,
                         check = getNimbleOption('checkModel'),
                         calculate = TRUE,
                         name = NULL,
+                        buildDerivs = getNimbleOption('buildModelDerivs'),
                         userEnv = parent.frame()) {
     returnModel <- !returnDef
     if(is.null(name)) name <- paste0(gsub(" ", "_", substr(deparse(substitute(code))[1], 1, 10)),
@@ -83,51 +87,141 @@ nimbleModel <- function(code,
                                      nimbleModelID())
     name <- gsub("::", "_cc_", name) ## :: can arise from a call via do.call, for example, giving name with "base::quote_"...
     if(length(constants) && sum(names(constants) == ""))
-      stop("BUGSmodel: 'constants' must be a named list")
+      stop("nimbleModel: 'constants' must be a named list")
     if(length(dimensions) && sum(names(dimensions) == ""))
-      stop("BUGSmodel: 'dimensions' must be a named list")
+      stop("nimbleModel: 'dimensions' must be a named list")
     if(length(data) && sum(names(data) == ""))
-        stop("BUGSmodel: 'data' must be a named list")
+        stop("nimbleModel: 'data' must be a named list")
+    if(is.function(inits))
+        stop("nimbleModel: `inits` must be a list, not a function")
     if(any(!sapply(data, function(x) {
         is.numeric(x) || is.logical(x) ||
             (is.data.frame(x) && all(sapply(x, 'is.numeric'))) })))
-        stop("BUGSmodel: elements of 'data' must be numeric")
-    md <- modelDefClass$new(name = name)
-    if(nimbleOptions('verbose')) message("Defining model")
-    md$setupModel(code=code, constants=constants, dimensions=dimensions, inits = inits, data = data, userEnv = userEnv, debug=debug)
+        stop("nimbleModel: elements of 'data' must be numeric")
+    if(isTRUE(buildDerivs))
+        if(!isTRUE(nimbleOptions("enableDerivs")))
+            stop("nimbleModel: 'buildDerivs' cannot be set to TRUE if nimbleOptions[['enableDerivs']] is not TRUE.")
+    md <- modelDefClass$new(name = name, buildDerivs = buildDerivs)
+    messageIfVerbose("Defining model")
+    md$setupModel(code=code, constants=constants, dimensions=dimensions, inits = inits,
+                  data = data, userEnv = userEnv, debug=debug)
     if(!returnModel) return(md)
+    if(nimbleOptions("enableMacros")){
+      # Do this stuff if macros are enabled:
+      # Update constants in case any new ones were created by macros
+      newConstants <- md$constantsList[!names(md$constantsList) %in% names(constants)]
+      constants <- c(constants, newConstants)
+      # Update inits in case new ones were created by macros
+      inits <- addMacroInits(inits, md$macroInits)
+    }
     # move any data lumped in 'constants' into 'data' for
     # backwards compatibility with JAGS/BUGS
     if(debug) browser()
     vars <- names(md$varInfo) # varNames contains logProb vars too...
     dataVarIndices <- names(constants) %in% vars & !names(constants) %in% names(data)  # don't overwrite anything in 'data'
     if(sum(names(constants) %in% names(data)))
-        message("  [Note] Found the same variable(s) in both 'data' and 'constants'; using variable(s) from 'data'.\n")
+        messageIfVerbose("  [Note] Found the same variable(s) in both 'data' and 'constants'; using variable(s) from 'data'.\n")
     if(sum(dataVarIndices)) {
         data <- c(data, constants[dataVarIndices])
         ## if(nimbleOptions('verbose')) message("  Adding '", paste(names(constants)[dataVarIndices], collapse = ', '), "' as data for building model.")
     }
-    if(nimbleOptions('verbose')) message("Building model")
+    messageIfVerbose("Building model")
     model <- md$newModel(data=data, inits=inits, where=where, check=check, calculate = calculate, debug = debug)
     return(model)
 }
 
 #' Turn BUGS model code into an object for use in \code{nimbleModel} or \code{readBUGSmodel}
 #'
-#' Simply keeps model code as an R call object, the form needed by \code{\link{nimbleModel}} and optionally usable by \code{\link{readBUGSmodel}}.
+#' Takes one or more R expressions or code objects, combines them if necessary, and returns the 
+#' resulting code as an R call object in the form needed by \code{\link{nimbleModel}}
+#' and optionally usable by \code{\link{readBUGSmodel}}.
 #'
-#' @param code expression providing the code for the model
-#' @author Daniel Turek
+#' @param ... One or more R code expressions or objects containing R code, providing the code for the model. See details.
+#' @author Daniel Turek and Ken Kellner
 #' @export
-#' @details It is equivalent to use the R function \code{\link{quote}}.  \code{nimbleCode} is simply provided as a more readable alternative for NIMBLE users not familiar with \code{quote}.
+#' @details
+#' You may provide code to \code{nimbleCode} in two ways. The first way
+#' is to provide the code as an argument directly, wrapped in curly brackets (\{\}).
+#' The second is to create an object containing code with either \code{nimbleCode} or \code{quote},
+#' and pass that object to \code{nimbleCode}. You may mix and match these two approaches.
+#' Note that code provided directly but not wrapped in \{\} will be rejected.
+#' When multiple pieces of code are provided as arguments, they will be combined into
+#' a single code object by \code{nimbleCode} and unnecessary curly brackets will be
+#' automatically removed.
+#'
+#' When providing a single block of code directly, the result from \code{nimbleCode}
+#' is equivalent to using the R function \code{\link{quote}}.  \code{nimbleCode} is 
+#' simply provided as a more readable alternative for NIMBLE users not familiar with \code{quote}.
 #' @examples
+#' # Provide a single block of code directly
 #' code <- nimbleCode({
 #'     x ~ dnorm(mu, sd = 1)
 #'     mu ~ dnorm(0, sd = prior_sd)
 #' })
-nimbleCode <- function(code) {
-  code <- substitute(code)
-  return(code)
+#'
+#' code_new <- nimbleCode({
+#'     prior_sd ~ dhalfflat()
+#' })
+#'
+#' # Combine multiple previously saved code objects
+#' code2 <- nimbleCode(code, code_new)
+#'
+#' # Combine code and previously saved code objects
+#' code3 <- nimbleCode({
+#'    y ~ dnorm(mu, sd = 1)
+#' }, code, code_new)
+#' 
+nimbleCode <- function(...){
+  # Doing this substitution first is necessary to keep R from evaluating directly 
+  # provided code chunks, which will usually result in an error.
+  code <- substitute(list(...))
+  if(length(code) == 1){
+    stop("Must provide at least one argument")
+  }
+  code <- code[2:length(code)] # Drop list prefix.
+
+  # Iterate through each code element and extract the code from it.
+  out <- lapply(1:length(code), function(i){
+    # If element i is a call (a directly provided code chunk)
+    if(is.call(code[[i]])){
+      # Check it is in brackets
+      if(code[[i]][[1]] == "{"){
+        # If it is, return the code unchanged.
+        return(code[[i]])
+      } else {
+        # Error if not in brackets.
+        stop("Call ", safeDeparse(code[[i]])," must be wrapped in brackets { }",
+             call.=FALSE)
+      }
+    } else {
+      # If not a call, we assume element i must be an object containing code.
+      # We need to extract element i from the ...
+      # Can do this by evaluating `..i`.
+      out <- eval(str2lang(paste0("..", i)))
+      # Check that the evaluated result is code and error if it isn't.
+      if(is.call(out)){
+        if(out[[1]] != "{"){
+          stop("Call ", safeDeparse(code[[i]])," must be wrapped in brackets { }",
+              call.=FALSE)
+        }
+        return(out)
+      } else {
+        stop("Object ", safeDeparse(code[[i]]), " does not contain valid code",
+             call.=FALSE)
+      }
+    }
+  })
+
+  # Combine all the code chunks if more than one.
+  # This could be done regardless of number of chunks, but possibly better
+  # not to run this code unless absolutely necessary.
+  if(length(code) > 1){
+    out <- embedListInRbracket(out)
+    out <- removeExtraBrackets(out)
+  } else {
+    out <- out[[1]]
+  }
+  out
 }
 
 
@@ -188,7 +282,9 @@ processModelFile <- function(fileName) {
   codeLines <- paste("\n", codeLines, collapse = "") # make sure first block occurs after a \n so regex below works ok; this allows me to not mistakenly find 'var', 'data', etc as names of nodes
   varBlockRegEx = "\n\\s*var\\s*(\n*.*?)(\n+\\s*(data|model|const).*)"
   dataBlockRegEx = "\n\\s*data\\s*\\{(.*?)\\}(\n+\\s*(var|model|const).*)"
-  modelBlockRegEx = "\n\\s*model\\s*\\{(.*?)\\}\\s*\n+\\s*(var|data|const).*"
+  ## 2023-12-02: added additional regex syntax so that variables beginning with `var`, `data`, `const`
+  ## after a loop are not omitted as part of var/data/const block (issue 1351).
+  modelBlockRegEx = "\n\\s*model\\s*\\{(.*?)\\}\\s*\n+\\s*(var|data|const)(\\s+\\w|\\s*\n\\s*\\w|\\s+\\{|\\s*\n\\s*\\{)"
 
   if(length(grep(varBlockRegEx, codeLines))) {
     varLines <- gsub(varBlockRegEx, "\\1", codeLines)
@@ -252,7 +348,10 @@ processNonParseableCode <- function(text) {
 #'
 #' @param check logical indicating whether to check the model object for missing or invalid values.  Default is given by the NIMBLE option 'checkModel'. See \code{\link{nimbleOptions}} for details.
 #'
-#' @param calculate logical indicating whether to run \code{\link{calculate}} on the model after building it; this will calculate all deterministic nodes and logProbability values given the current state of all nodes. Default is TRUE. For large models, one might want to disable this, but note that deterministic nodes, including nodes introduced into the model by NIMBLE, may be \code{NA}. 
+#' @param calculate logical indicating whether to run \code{\link{calculate}} on the model after building it; this will calculate all deterministic nodes and logProbability values given the current state of all nodes. Default is TRUE. For large models, one might want to disable this, but note that deterministic nodes, including nodes introduced into the model by NIMBLE, may be \code{NA}.
+#'
+#' @param buildDerivs logical indicating whether to build derivative capabilities for the model.
+
 #'
 #' @author Christopher Paciorek
 #'
@@ -283,7 +382,7 @@ processNonParseableCode <- function(text) {
 #' pumpModel$getVarNames()
 #' pumpModel$x
 #' 
-readBUGSmodel <- function(model, data = NULL, inits = NULL, dir = NULL, useInits = TRUE, debug = FALSE, returnComponents = FALSE, check = getNimbleOption('checkModel'), calculate = TRUE) {
+readBUGSmodel <- function(model, data = NULL, inits = NULL, dir = NULL, useInits = TRUE, debug = FALSE, returnComponents = FALSE, check = getNimbleOption('checkModel'), calculate = TRUE, buildDerivs = getNimbleOption('buildModelDerivs')) {
 
   # helper function
   doEval <- function(vec, env) {
@@ -455,7 +554,7 @@ readBUGSmodel <- function(model, data = NULL, inits = NULL, dir = NULL, useInits
   # create R model
   # 'data' will have constants and data, but BUGSmodel is written to be ok with this
   # we can't separate them before building model as we don't know names of nodes in model
-  Rmodel <- nimbleModel(code = model, name = ifelse(is.null(modelName), 'model', modelName), constants = data, dimensions = dims, inits = inits, debug = debug, check = check, calculate = calculate)
+  Rmodel <- nimbleModel(code = model, name = ifelse(is.null(modelName), 'model', modelName), constants = data, dimensions = dims, inits = inits, debug = debug, check = check, calculate = calculate, buildDerivs = buildDerivs)
 
   # now provide values for data nodes from 'data' list
   if(FALSE) { # now handled within nimbleModel

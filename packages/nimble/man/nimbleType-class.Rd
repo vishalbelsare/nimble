@@ -5,13 +5,6 @@
 \alias{nimbleType-class}
 \alias{nimbleType}
 \title{create a nimbleType object}
-\arguments{
-\item{name}{The name of the object, given as a character string.}
-
-\item{type}{The type of the object, given as a character string.}
-
-\item{dim}{The dimension of the object, given as an integer.  This can be left blank if the object is a nimbleList.}
-}
 \description{
 Create a nimbleType object, with information on the name, type, and dimension of an object to be placed in a \code{\link{nimbleList}}.
 }
@@ -21,7 +14,7 @@ This function creates \code{nimbleType} objects, which can be used to define the
 The \code{type} argument can be chosen from among \code{character}, \code{double}, \code{integer}, and \code{logical},
 or can be the name of a previously created \code{\link{nimbleList} definition}.
 
-See the NIMBLE \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} for additional examples.
+See the NIMBLE \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} for additional examples.
 }
 
 \examples{

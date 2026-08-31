@@ -8,8 +8,6 @@ nimbleOptions(verbose = FALSE)
 nimbleProgressBarSetting <- nimbleOptions('MCMCprogressBar')
 nimbleOptions(MCMCprogressBar = FALSE)
 
-context('Testing of MCMC_RJ functionality')
-
 test_that("Test configureRJ with no indicator variables", {
 
   ## Linear regression with 2 covariates, one in the model
@@ -146,13 +144,13 @@ test_that("Check passing node vector - no indicator", {
   mConf <- configureMCMC(m)
 
   ## no error
-  expect_error(configureRJ(mConf, c("beta"), prior = 0.5), NA)
+  expect_no_error(configureRJ(mConf, c("beta"), prior = 0.5))
   
   mConf <- configureMCMC(m)
-  expect_error(configureRJ(mConf, c("beta[1]", "beta[2:4]"), prior = 0.5), NA)
+  expect_no_error(configureRJ(mConf, c("beta[1]", "beta[2:4]"), prior = 0.5))
   
   mConf <- configureMCMC(m)
-  expect_error(configureRJ(mConf, c("beta[1]", "beta[2:4]"), prior = c(0.5, 0.2)), NA)
+  expect_no_error(configureRJ(mConf, c("beta[1]", "beta[2:4]"), prior = c(0.5, 0.2)))
 })
 
 
@@ -472,10 +470,10 @@ test_that("Check passing node vector - indicator", {
   mConf <- configureMCMC(m)
   
   ## no error
-  expect_error(configureRJ(mConf, targetNodes = "beta", indicatorNodes = "z"), NA)
+  expect_no_error(configureRJ(mConf, targetNodes = "beta", indicatorNodes = "z"))
   
   mConf <- configureMCMC(m)
-  expect_error(configureRJ(mConf, c("beta[1]", "beta[2:4]"), indicatorNodes = c("z[1]", "z[2:4]")), NA)
+  expect_no_error(configureRJ(mConf, c("beta[1]", "beta[2:4]"), indicatorNodes = c("z[1]", "z[2:4]")))
   
   ## throws error
   mConf <- configureMCMC(m)
@@ -487,4 +485,90 @@ test_that("Check passing node vector - indicator", {
   #   nimble:::clearCompiled(m)
   # }
   
+})
+
+
+test_that("Bails out for non-constant target node hyperparameters", {
+
+    code <- nimbleCode({
+        sigma ~ dunif(0, 100)
+        beta1 ~ dnorm(0, sd = 100)
+        beta2 ~ dnorm(0, sd = sigma)
+        sigma2 <- sigma^2
+        beta3 ~ dnorm(0, sd = sigma2)
+        z ~ dbern(0.5)
+        Ypred <- beta0 + beta1 * z * x1 + beta2 * z * x2 + beta3 * z * x3
+        Y ~ dnorm(Ypred, sd = sigma)
+    })
+
+    Rmodel <- nimbleModel(code)
+
+    conf <- configureMCMC(Rmodel)
+    expect_no_error(configureRJ(conf, targetNodes = 'beta1', indicatorNodes = 'z'))
+
+    conf <- configureMCMC(Rmodel)
+    expect_error(configureRJ(conf, targetNodes = 'beta2', indicatorNodes = 'z'))
+
+    conf <- configureMCMC(Rmodel)
+    expect_error(configureRJ(conf, targetNodes = 'beta3', indicatorNodes = 'z'))
+
+    conf <- configureMCMC(Rmodel)
+    expect_no_error(configureRJ(conf, targetNodes = 'beta1', priorProb = 0.5))
+
+    conf <- configureMCMC(Rmodel)
+    expect_error(configureRJ(conf, targetNodes = 'beta2', priorProb = 0.5))
+
+    conf <- configureMCMC(Rmodel)
+    expect_error(configureRJ(conf, targetNodes = 'beta3', priorProb = 0.5))
+
+})
+
+
+test_that("configureRJ errors when a toggled sampler updates multiple nodes", {
+
+    ## with indicator variable
+    code <- nimbleCode({
+        beta0 ~ dnorm(0, sd = 100)
+        beta1 ~ dnorm(0, sd = 100)
+        sigma ~ dunif(0, 100)
+        z1 ~ dbern(psi)
+        psi ~ dbeta(1, 1)
+        for(i in 1:50) {
+            Ypred[i] <- beta0 + beta1 * z1 * x1[i]
+            Y[i] ~ dnorm(Ypred[i], sd = sigma)
+        }
+    })
+    
+    set.seed(0)
+    x1 <- runif(50, -1, 1)
+    Y <- rnorm(50, 1.5 + 2 * x1, sd = 1)
+    
+    data   <- list(Y = Y, x1 = x1)
+    inits  <- list(beta0 = 0, beta1 = 0, sigma = 1, z1 = 1, psi = 0.5)
+    
+    Rmodel <- nimbleModel(code, data=data, inits=inits)
+    conf <- configureMCMC(Rmodel)
+    conf$removeSamplers('beta1')
+    conf$addSampler(target = c('beta0', 'beta1'), type = 'RW_block')
+    expect_error(configureRJ(conf, 'beta1', indicator = 'z1'))
+
+    ## without indicator variable
+    code <- nimbleCode({
+        beta0 ~ dnorm(0, sd = 100)
+        beta1 ~ dnorm(0, sd = 100)
+        sigma ~ dunif(0, 100)
+        for(i in 1:50) {
+            Ypred[i] <- beta0 + beta1 * z1 * x1[i]
+            Y[i] ~ dnorm(Ypred[i], sd = sigma)
+        }
+    })
+
+    inits  <- list(beta0 = 0, beta1 = 0, sigma = 1)
+
+    Rmodel <- nimbleModel(code, data=data, inits=inits)
+    conf <- configureMCMC(Rmodel)
+    conf$removeSamplers('beta1')
+    conf$addSampler(target = c('beta0', 'beta1'), type = 'RW_block')
+    expect_error(configureRJ(conf, 'beta1', priorProb = 0.1))
+    
 })

@@ -1,16 +1,22 @@
-#' Create an MCMC function from a NIMBLE model, or an MCMC configuration object
+#' Create an MCMC object from a NIMBLE model, or an MCMC configuration object
 #'
-#' First required argument, which may be of class \code{MCMCconf} (an MCMC configuration object), or inherit from class \code{modelBaseClass} (a NIMBLE model object).  Returns an uncompiled executable MCMC function.  See details.
+#' First required argument, which may be of class \code{MCMCconf} (an MCMC configuration object), or inherit from class \code{modelBaseClass} (a NIMBLE model object).  Returns an uncompiled executable MCMC object.  See details.
 #'
-#' @param conf An MCMC configuration object of class \code{MCMCconf} that specifies the model, samplers, monitors, and thinning intervals for the resulting MCMC function.  See \code{configureMCMC} for details of creating MCMC configuration objects.  Alternatively, \code{conf} may a NIMBLE model object, in which case an MCMC function corresponding to the default MCMC configuration for this model is returned.
+#' @param conf Either an MCMC configuration object of class \code{MCMCconf} or a NIMBLE model object. An MCMC configuration object would be returned from \code{configureMCMC} and contains information on the model, samplers, monitors, and thinning intervals to be used. Alternatively, \code{conf} may a NIMBLE model object, in which case default configuration from calling \code{configureMCMC(model, ...l)} will be used.
+#'
+#' @param print A logical argument, specifying whether to print details of the MCMC samplers and monitors.
 #' 
 #' @param ... Additional arguments to be passed to \code{configureMCMC} if \code{conf} is a NIMBLE model object (see \code{help(configureMCMC)}).
 #'
 #' @details
 #' 
-#' Calling buildMCMC(conf) will produce an uncompiled MCMC function object.  The uncompiled MCMC function will have arguments:
+#' Calling buildMCMC(conf) will produce an uncompiled MCMC object. The object contains several methods, including the main \code{run} function for running the MCMC, a \code{getTimes} function for determining the computation time spent in each sampler (see 'getTimes' section below), and functions related to WAIC (\code{getWAIC}, \code{getWAICdetails}, \code{calculateWAIC} (see \code{help(waic)}).
+#'
+#' The uncompiled \code{run} function will have arguments:
 #'
 #' \code{niter}: The number of iterations to run the MCMC.
+#'
+#' \code{nburnin}: Number of initial, pre-thinning, MCMC iterations to discard (default = 0).
 #'
 #' \code{thin}: The thinning interval for the \code{monitors} that were specified in the MCMC configuration.  If this argument is provided at MCMC runtime, it will take precedence over the \code{thin} interval that was specified in the MCMC configuration.  If omitted, the \code{thin} interval from the MCMC configuration will be used.
 #'
@@ -20,7 +26,12 @@
 #'
 #' \code{resetMV}: Boolean specifying whether to begin recording posterior sample chains anew. This argument is only considered when using \code{reset = FALSE}.  Specifying \code{reset = FALSE, resetMV = TRUE} allows the MCMC algorithm to continue running from where it left off, but without appending the new posterior samples to the already existing samples, i.e. all previously obtained samples will be erased. This option can help reduce memory usage during burn-in (default = FALSE).
 #'
-#' \code{nburnin}: Number of initial, pre-thinning, MCMC iterations to discard (default = 0).
+#' \code{resetWAIC}: Boolean specifying whether to reset the WAIC summary statistics to their initial states and thereby begin the WAIC calculation anew (default = TRUE). Specifying \code{resetWAIC = FALSE} allows the WAIC calculation to continue running from where it left off. 
+#'
+#' \code{initializeModel}: Boolean specifying whether to run the initializeModel routine on the underlying model object, prior to beginning MCMC sampling (default = TRUE).
+#' 
+#' \code{chain}: Integer specifying the MCMC chain number.  The chain number is passed to each MCMC sampler's before_chain method.  The value for this argument is specified automatically from invocation via runMCMC, and need not be supplied when calling mcmc$run (default = 1).
+#' \code{chain}: Integer specifying the MCMC chain number.  The chain number is passed to each MCMC sampler's before_chain and after_chain methods.  The value for this argument is specified automatically from invocation via runMCMC, and genernally need not be supplied when calling mcmc$run (default = 1).
 #'
 #' \code{time}: Boolean specifying whether to record runtimes of the individual internal MCMC samplers.  When \code{time = TRUE}, a vector of runtimes (measured in seconds) can be extracted from the MCMC using the method \code{mcmc$getTimes()} (default = FALSE).
 #'
@@ -36,8 +47,12 @@
 #' The uncompiled MCMC function may be compiled to a compiled MCMC object, taking care to compile in the same project as the R model object, using:
 #' \code{Cmcmc <- compileNimble(Rmcmc, project = Rmodel)}
 #'
-#' The compiled function will function identically to the uncompiled object, except acting on the compiled model object.
+#' The compiled object will function identically to the uncompiled object except acting on the compiled model object.
 #'
+#' @section Timing the MCMC samplers:
+#' 
+#' If you want to obtain the computation time spent in each sampler, you can set \code{time=TRUE} as a run-time argument to \code{run()} and then use the method \code{getTimes()} to obtain the times.
+#' 
 #' @section Calculating WAIC:
 #' 
 #' Please see \code{help(waic)} for more information.
@@ -54,13 +69,21 @@
 #' Rmcmc <- buildMCMC(conf)
 #' Cmodel <- compileNimble(Rmodel)
 #' Cmcmc <- compileNimble(Rmcmc, project=Rmodel)
+#'
+#' ## Running the MCMC with `run`
 #' Cmcmc$run(10000)
 #' samples <- as.matrix(Cmcmc$mvSamples)
 #' samplesAsList <- as.list(Cmcmc$mvSamples)
 #' head(samples)
+#'
+#' ## Getting WAIC
 #' waicInfo <- Cmcmc$getWAIC()
 #' waicInfo$WAIC
 #' waicInfo$pWAIC
+#'
+#' ## Timing the samplers (must set `time = TRUE` when running the MCMC)
+#' Cmcmc$run(10000, time = TRUE)
+#' Cmcmc$getTimes()
 #' }
 #'
 #' @seealso \code{\link{configureMCMC}} \code{\link{runMCMC}} \code{\link{nimbleMCMC}}
@@ -76,40 +99,139 @@
 #' @export
 buildMCMC <- nimbleFunction(
     name = 'MCMC',
-    setup = function(conf, ...) {
+    setup = function(conf, print, ...) {
+        if(missing(print)) print <- getNimbleOption('verbose')  ## default value defined by getNimbleOption has to be here, inside the setup function code
         dotdotdotArgNames <- names(list(...))
         if(inherits(conf, 'MCMCconf') && ('enableWAIC' %in% dotdotdotArgNames || 'controlWAIC' %in% dotdotdotArgNames))
-            stop("buildMCMC: 'enableWAIC' and 'controlWAIC' can only be given as arguments when running 'buildMCMC' directly on a model object, not on an MCMC configuration object. Instead pass these argument(s) directly to 'configureMCMC'.") 
+            stop("buildMCMC: 'enableWAIC' and 'controlWAIC' can only be given as arguments when running 'buildMCMC' directly on a model object, not on an MCMC configuration object. Instead pass these argument(s) directly to 'configureMCMC'.")
         
-        if(inherits(conf, 'modelBaseClass'))   conf <- configureMCMC(conf, ...)
-        else if(!inherits(conf, 'MCMCconf')) stop('conf must either be a nimbleModel or a MCMCconf object (created by configureMCMC(...) )')
-
+        if(inherits(conf, 'modelBaseClass')) {
+            conf <- configureMCMC(conf, print = FALSE, ...)
+            if(print)   conf$show(includeConfGetUnsampledNodes = FALSE)
+        } else {
+            if(!inherits(conf, 'MCMCconf')) stop('conf must either be a nimbleModel or a MCMCconf object (created by configureMCMC(...) )')
+            if(getNimbleOption('MCMCwarnUnsampledStochasticNodes')) {
+                conf$setUnsampledNodes()
+                conf$warnUnsampledNodes()
+            }
+        }
+        
         enableWAIC <- conf$enableWAIC
-        
         model <- conf$model
         my_initializeModel <- initializeModel(model)
         mvSaved <- modelValues(model)
+        
+        if(getNimbleOption('MCMCorderPriorSamplesSamplersFirst') && length(conf$samplerConfs)) {
+            ## put all prior_samples samplers at the beginning
+            samplerNames <- sapply(conf$samplerConfs, `[[`, 'name')
+            priorSamplesSamplerBool <- grepl('^prior_samples$', samplerNames)
+            psSamplerInd <- which(priorSamplesSamplerBool)
+            regularSamplerInd <- which(!priorSamplesSamplerBool)
+            if(length(psSamplerInd) && length(regularSamplerInd) && (max(psSamplerInd) > min(regularSamplerInd))) {
+                messageIfVerbose('  [Note] Reordering prior_samples samplers to execute first')
+                exOrder <- conf$samplerExecutionOrder
+                if((length(exOrder)!=length(conf$samplerConfs)) || !all(exOrder==1:length(conf$samplerConfs))) stop('Halting, rather than reordering samplers in the presence of a modified sampler execution order.  If a modified execution order is needed, then: (1) reorder prior_samples samplers to be first in the MCMC configuration printSamplers method output, (2) set the desired sampler execution order, and (3) run buildMCMC.')
+                conf$samplerConfs <- conf$samplerConfs[c(psSamplerInd, regularSamplerInd)]
+            }
+        }
+        
+        if(getNimbleOption('MCMCorderPosteriorPredictiveSamplersLast') && length(conf$samplerConfs)) {
+            ## put all posterior_predictive samplers at the end
+            samplerNames <- sapply(conf$samplerConfs, `[[`, 'name')
+            postPredSamplerBool <- grepl('^posterior_predictive$', samplerNames)
+            ppSamplerInd <- which(postPredSamplerBool)
+            regularSamplerInd <- which(!postPredSamplerBool)
+            if(length(ppSamplerInd) && length(regularSamplerInd) && (max(regularSamplerInd) > min(ppSamplerInd))) {
+                messageIfVerbose('  [Note] Reordering posterior_predictive samplers to execute last')
+                exOrder <- conf$samplerExecutionOrder
+                if((length(exOrder)!=length(conf$samplerConfs)) || !all(exOrder==1:length(conf$samplerConfs))) stop('Halting, rather than reordering samplers in the presence of a modified sampler execution order.  If a modified execution order is needed, then: (1) reorder posterior predictive samplers to be last in the MCMC configuration printSamplers method output, (2) set the desired sampler execution order, and (3) run buildMCMC.')
+                conf$samplerConfs <- conf$samplerConfs[c(regularSamplerInd, ppSamplerInd)]
+            }
+        }
+
+        ## build sampler functions
         samplerFunctions <- nimbleFunctionList(sampler_BASE)
-        for(i in seq_along(conf$samplerConfs))
-            samplerFunctions[[i]] <- conf$samplerConfs[[i]]$buildSampler(model=model, mvSaved=mvSaved)
+
+        predictiveNodeIDs <- conf$model$getPredictiveNodeIDs()
+        if(length(predictiveNodeIDs)) {
+            ## save current values of 'getDependenciesIncludesPredictiveNodes' system option, then temporarily
+            ## change its value to that of 'MCMCusePredictiveDependenciesInCalculations'
+            getDependenciesIncludesPredictiveNodes_save <- getNimbleOption('getDependenciesIncludesPredictiveNodes')
+            nimbleOptions(getDependenciesIncludesPredictiveNodes = getNimbleOption('MCMCusePredictiveDependenciesInCalculations'))
+            e <- try({
+                for(i in seq_along(conf$samplerConfs)) {
+                    ## if option MCMCusePredictiveDependenciesInCalculations = FALSE, disallowed assignment of joint samplers to *both* PP and non-PP nodes:
+                    targetScalarComponentsIsPP <- conf$model$modelDef$nodeName2GraphIDs(conf$samplerConfs[[i]]$targetAsScalar) %in% predictiveNodeIDs
+                    samplingPredictiveNode <- isTRUE(any(targetScalarComponentsIsPP))
+                    if(samplingPredictiveNode && !all(targetScalarComponentsIsPP) && !getNimbleOption('MCMCusePredictiveDependenciesInCalculations'))
+                        stop('Cannot assign a joint sampler to simultaneously update both posterior predictive and non-posterior predictive nodes, when nimble option MCMCusePredictiveDependenciesInCalculations = FALSE')
+                    ## caveat: if this sampler is sampling a predictive node, then revert the 'getDependenciesIncludesPredictiveNodes'
+                    ## setting back to its original value, for creation of this sampler:
+                    if(samplingPredictiveNode)   nimbleOptions(getDependenciesIncludesPredictiveNodes = TRUE)
+                    samplerFunctions[[i]] <- conf$samplerConfs[[i]]$buildSampler(model=model, mvSaved=mvSaved)
+                    if(samplingPredictiveNode)   nimbleOptions(getDependenciesIncludesPredictiveNodes = getNimbleOption('MCMCusePredictiveDependenciesInCalculations'))
+                }},
+                silent = TRUE
+                )
+            ## regardless whether an error occurred during sampler building, restore the original system option value:
+            nimbleOptions(getDependenciesIncludesPredictiveNodes = getDependenciesIncludesPredictiveNodes_save)
+            ## if an error occurred during sampler building, then quit here:
+            if(inherits(e, 'try-error'))   { errorMessage <- sub('^Error.+?: ', '', e[1]); stop(errorMessage) }
+        } else {
+            for(i in seq_along(conf$samplerConfs))
+                samplerFunctions[[i]] <- conf$samplerConfs[[i]]$buildSampler(model=model, mvSaved=mvSaved)
+        }
+
+        ## construct mvSamples and mvSamples2
+        mvSamplesConf  <- conf$getMvSamplesConf(1)
+        mvSamples2Conf <- conf$getMvSamplesConf(2)
+        mvSamples <- modelValues(mvSamplesConf)
+        mvSamples2 <- modelValues(mvSamples2Conf)
+        
+        ## build derived quantity intervals
+        derivedFunctions <- nimbleFunctionList(derived_BASE)
+        numDerived <- length(conf$derivedConfs)
+        derivedIntervals <- numeric(max(numDerived, 2))    ## force to be a vector
+        for(i in seq_along(conf$derivedConfs)) {
+            derivedIntervals[i] <- conf$derivedConfs[[i]]$interval
+        }
+
+        ## build derived quantity function list
+        derivedFunctions <- nimbleFunctionList(derived_BASE)
+        ## code below allows 'mcmc' to be a setup argument of derived quantity nimbleFunctions
+        on.exit({
+            for(i in seq_along(conf$derivedConfs)) {
+                derivedFunctions[[i]] <- conf$derivedConfs[[i]]$buildDerived(model=model, mcmc=nfRefClassObject)
+            }
+            ## need to catch the case where buildMCMC errors out early,
+            ## prior to executing the final lines which actually create the nfRefClassObject object:
+            if(exists('nfRefClassObject', inherits = FALSE)) {
+                nfRefClassObject[['derivedFunctions']] <- nf_preProcessMemberDataObject(get('derivedFunctions'))
+            }
+        }, add = TRUE)
+
+        ## for naming the derivedList return object from runMCMC
+        derivedTypes <- sapply(conf$derivedConfs, `[[`, 'name')
+        if(length(derivedTypes) == 0)  derivedTypes <- character()
+        ## used for extracting names of derived quantities,
+        ## having as member data is necessary for compilation
+        derivedNames <- character(2)
+
         samplerExecutionOrderFromConfPlusTwoZeros <- c(conf$samplerExecutionOrder, 0, 0)  ## establish as a vector
         monitors  <- mcmc_processMonitorNames(model, conf$monitors)
         monitors2 <- mcmc_processMonitorNames(model, conf$monitors2)
         thinFromConfVec <- c(conf$thin, conf$thin2)  ## vector
         thinToUseVec <- c(0, 0)                      ## vector, needs to member data
-        mvSamplesConf  <- conf$getMvSamplesConf(1)
-        mvSamples2Conf <- conf$getMvSamplesConf(2)
-        mvSamples <- modelValues(mvSamplesConf)
-        mvSamples2 <- modelValues(mvSamples2Conf)
-        samplerTimes <- c(0,0) ## establish as a vector
+        samplerTimes <- c(0, 0)  ## establish as a vector
         progressBarLength <- 52  ## multiples of 4 only
         progressBarDefaultSetting <- getNimbleOption('MCMCprogressBar')
-
+        ##nimbleVerboseOption <- getNimbleOption('verbose')   ## not currently used anywhere
         waicFun <- nimbleFunctionList(waicClass_base)
         if(enableWAIC && !('online' %in% names(conf$controlWAIC) && !conf$controlWAIC$online)) {
            waicFun[[1]] <- buildWAIC(model, mvSaved, conf$controlWAIC)
            onlineWAIC <- waicFun[[1]]$online 
            thinWAIC <- waicFun[[1]]$thin
+           nburnin_extraWAIC <- waicFun[[1]]$nburnin_extra
         } else {
             if(enableWAIC) {  
                 ## Setup for original (offline) WAIC prior to v. 0.12.0, namely cWAIC with no grouping capability.
@@ -120,7 +242,13 @@ buildMCMC <- nimbleFunction(
             } else waicFun[[1]] <- buildDummyWAIC()
             onlineWAIC <- FALSE
             thinWAIC <- FALSE
+            nburnin_extraWAIC <- 0
         }
+        iterationTotal <- 0
+        iterUntilSaveVec <- c(0, 0)
+        warnUnfinishedThinningInterval <- getNimbleOption('MCMCwarnUnfinishedThinningInterval')
+        firstRun <- TRUE
+        setupOutputs(derivedTypes)
     },
     
     run = function(
@@ -131,38 +259,70 @@ buildMCMC <- nimbleFunction(
         progressBar           = logical(default = TRUE),
         ## reinstate samplerExecutionOrder as a runtime argument, once we support non-scalar default values for runtime arguments:
         ##samplerExecutionOrder = integer(1, default = -1)
-        nburnin               = integer(default =  0),
-        thin                  = integer(default = -1),
-        thin2                 = integer(default = -1),
-        resetWAIC             = logical(default = TRUE)) {
+        nburnin               = double(default =  0),
+        thin                  = double(default = -1),
+        thin2                 = double(default = -1),
+        resetWAIC             = logical(default = TRUE),
+        initializeModel       = logical(default = TRUE),
+        chain                 = integer(default =  1)) {
         if(niter < 0)       stop('cannot specify niter < 0')
         if(nburnin < 0)     stop('cannot specify nburnin < 0')
         if(nburnin > niter) stop('cannot specify nburnin > niter')
-        thinToUseVec <<- thinFromConfVec
-        if(thin  != -1)   thinToUseVec[1] <<- thin
-        if(thin2 != -1)   thinToUseVec[2] <<- thin2
-        my_initializeModel$run()
-        nimCopy(from = model, to = mvSaved, row = 1, logProb = TRUE)
+        if(firstRun)   reset <- TRUE       ## compulsory reset on first run of MCMC
+        firstRun <<- FALSE
+        mvSamples_copyRow  <- 0
+        mvSamples2_copyRow <- 0
         if(reset) {
+            if(initializeModel)   my_initializeModel$run()
+            thinToUseVec <<- thinFromConfVec
+            if(thin  != -1)   thinToUseVec[1] <<- thin
+            if(thin2 != -1)   thinToUseVec[2] <<- thin2
+            for(i in seq_along(derivedFunctions)) {
+                if(derivedIntervals[i] == 0) {
+                    derivedIntervals[i] <<- thinToUseVec[1]
+                    derivedFunctions[[i]]$set_interval(thinToUseVec[1])
+                }
+            }
             for(i in seq_along(samplerFunctions))   samplerFunctions[[i]]$reset()
+            for(i in seq_along(derivedFunctions))   derivedFunctions[[i]]$reset()
+            for(i in seq_along(samplerFunctions))   samplerFunctions[[i]]$before_chain(niter,         nburnin,               chain)
+            for(i in seq_along(derivedFunctions))   derivedFunctions[[i]]$before_chain(niter-nburnin, nburnin, thinToUseVec, chain)
             samplerTimes <<- numeric(length(samplerFunctions) + 1)       ## default inititialization to zero
-            mvSamples_copyRow  <- 0
-            mvSamples2_copyRow <- 0
+            iterationTotal <<- 0
+            iterUntilSaveVec <<- thinToUseVec
         } else {
             if(nburnin != 0)   stop('cannot specify nburnin when using reset = FALSE.')
+            ## now allowing changing of thin and thin2, when reset = FALSE; Jan 2026.
+            ## when reset = FALSE and a new value of thin (or thin2) is provided,
+            ## issue a warning if the previous MCMC run didn't exactly finish a thinning/save cycle.
+            ## this is checked using iterUntilSaveVec[1] == thinToUseVec[1] or iterUntilSaveVec[2] == thinToUseVec[2],
+            ## which means saving on the previous thinning interval just took place.
+            if((thin  != -1) & (thin  != thinToUseVec[1])) {
+                if((iterUntilSaveVec[1] != thinToUseVec[1]) & warnUnfinishedThinningInterval)
+                    cat('Warning: value of thin is being changed, in the midst of a thinning interval.\n')
+                thinToUseVec[1]     <<- thin
+                iterUntilSaveVec[1] <<- thin
+            }
+            if((thin2 != -1) & (thin2 != thinToUseVec[2])) {
+                if((iterUntilSaveVec[2] != thinToUseVec[2]) & warnUnfinishedThinningInterval)
+                    cat('Warning: value of thin2 is being changed, in the midst of a thinning interval.\n')
+                thinToUseVec[2]     <<- thin2
+                iterUntilSaveVec[2] <<- thin2
+            }
             if(dim(samplerTimes)[1] != length(samplerFunctions) + 1)   samplerTimes <<- numeric(length(samplerFunctions) + 1)   ## first run: default inititialization to zero
-            if (resetMV) {
-                mvSamples_copyRow  <- 0
-                mvSamples2_copyRow <- 0                
-            } else {
+            if(!resetMV) {
                 mvSamples_copyRow  <- getsize(mvSamples)
                 mvSamples2_copyRow <- getsize(mvSamples2)
             }
         }
-        if(onlineWAIC & resetWAIC)
-            waicFun[[1]]$reset()
-        resize(mvSamples,  mvSamples_copyRow  + floor((niter-nburnin) / thinToUseVec[1]))
-        resize(mvSamples2, mvSamples2_copyRow + floor((niter-nburnin) / thinToUseVec[2]))
+        for(iThin in 1:2) {
+            if(thinToUseVec[iThin] < 1)   stop('cannot use thin < 1')
+            if(thinToUseVec[iThin] != floor(thinToUseVec[iThin]))   stop('cannot use non-integer thin')
+        }
+        nimCopy(from = model, to = mvSaved, row = 1, logProb = TRUE)
+        if(onlineWAIC & resetWAIC)   waicFun[[1]]$reset()
+        resize(mvSamples,  mvSamples_copyRow  + 1 + floor((niter-nburnin-iterUntilSaveVec[1]) / thinToUseVec[1]))
+        resize(mvSamples2, mvSamples2_copyRow + 1 + floor((niter-nburnin-iterUntilSaveVec[2]) / thinToUseVec[2]))
         ## reinstate samplerExecutionOrder as a runtime argument, once we support non-scalar default values for runtime arguments:
         ##if(dim(samplerExecutionOrder)[1] > 0 & samplerExecutionOrder[1] == -1) {   ## runtime argument samplerExecutionOrder was not provided
         ##    lengthSamplerExecutionOrderFromConf <- dim(samplerExecutionOrderFromConfPlusTwoZeros)[1] - 2
@@ -179,7 +339,9 @@ buildMCMC <- nimbleFunction(
         progressBarNextFloor <- floor(progressBarNext)
         if(niter < 1) return()
         for(iter in 1:niter) {
+            iterationTotal <<- iterationTotal + 1
             checkInterrupt()
+            ## execute samplerFunctions
             if(time) {
                 for(i in seq_along(samplerExecutionOrderToUse)) {
                     ind <- samplerExecutionOrderToUse[i]
@@ -191,33 +353,46 @@ buildMCMC <- nimbleFunction(
                     samplerFunctions[[ind]]$run()
                 }
             }
-            ## adding "accumulators" to MCMC?
-            ## https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
             if(iter > nburnin) {
-                sampleNumber <- iter - nburnin
-                if(sampleNumber %% thinToUseVec[1] == 0) {
+                iterUntilSaveVec <<- iterUntilSaveVec - 1
+                ## save samples
+                iterPostBurnin <- iterationTotal - nburnin
+                if(iterUntilSaveVec[1] == 0) {
                     mvSamples_copyRow  <- mvSamples_copyRow  + 1
                     nimCopy(from = model, to = mvSamples,  row = mvSamples_copyRow,  nodes = monitors)
+                    iterUntilSaveVec[1] <<- thinToUseVec[1]
                 }
-                if(sampleNumber %% thinToUseVec[2] == 0) {
+                if(iterUntilSaveVec[2] == 0) {
                     mvSamples2_copyRow <- mvSamples2_copyRow + 1
                     nimCopy(from = model, to = mvSamples2, row = mvSamples2_copyRow, nodes = monitors2)
+                    iterUntilSaveVec[2] <<- thinToUseVec[2]
                 }
-                if(enableWAIC & onlineWAIC) {
+                ## save WAIC
+                if(enableWAIC & onlineWAIC & iter > nburnin + nburnin_extraWAIC) {
                     if (!thinWAIC) {
                         waicFun[[1]]$updateStats()
-                    } else if (sampleNumber %% thinToUseVec[1] == 0){ 
+                    } else if (iterPostBurnin %% thinToUseVec[1] == 0) {
                         waicFun[[1]]$updateStats()
                     }
                 }
+                ## execute derivedFunctions
+                for(i in seq_along(derivedFunctions)) {
+                    if(iterPostBurnin %% derivedIntervals[i] == 0) {
+                        derivedFunctions[[i]]$run( iterPostBurnin/derivedIntervals[i] )
+                    }
+                }
             }
-            if(progressBar & (iter == progressBarNextFloor)) {
+            ## progress bar
+            if(progressBar & (iter == progressBarNextFloor)) {    ## keep this one as 'iter'
                 cat('-')
                 progressBarNext <- progressBarNext + progressBarIncrement
                 progressBarNextFloor <- floor(progressBarNext)
             }
         }
         if(progressBar) print('|')
+        ## after_chain methods
+        for(i in seq_along(samplerFunctions))   samplerFunctions[[i]]$after_chain()
+        for(i in seq_along(derivedFunctions))   derivedFunctions[[i]]$after_chain()
         returnType(void())
     },
     methods = list(
@@ -225,7 +400,25 @@ buildMCMC <- nimbleFunction(
             returnType(double(1))
             return(samplerTimes[1:(length(samplerTimes)-1)])
         },
-        ## Old-style post-sampling WAIC calculation.
+        getNumDerived = function() {
+            returnType(double())
+            return(numDerived)
+        },
+        getDerivedQuantityResults = function(ind = double()) {
+            if(ind > numDerived) {
+                print('there aren\'t that many derived functions')
+                return(array(0, c(0,0)))
+            }
+            returnType(double(2))
+            return(derivedFunctions[[ind]]$get_results())
+        },
+        getDerivedQuantityNames = function(ind = double()) {
+            if(ind > numDerived)   print('there aren\'t that many derived functions')
+            returnType(character(1))
+            derivedNames <<- derivedFunctions[[ind]]$get_names()
+            return(derivedNames)
+        },
+        ## old-style post-sampling WAIC calculation
         calculateWAIC = function(nburnin = integer(default = 0)) {
             if(!enableWAIC) {
                 print('Error: One must set enableWAIC = TRUE in \'configureMCMC\' or \'buildMCMC\'. See \'help(configureMCMC)\' for additional information.')
@@ -236,21 +429,21 @@ buildMCMC <- nimbleFunction(
             return(result$WAIC)
         },
         getWAIC = function() {
-            returnType(waicList())
+            returnType(waicNimbleList())
             if(enableWAIC) {
                 return(waicFun[[1]]$get())
             } else {
                 print("WAIC was disabled based on the 'enableWAIC = FALSE'. You may be able to use the \'calculateWAIC\' function.")
-                return(waicList$new(WAIC = NA, lppd = NA, pWAIC = NA))
+                return(waicNimbleList$new(WAIC = NA, lppd = NA, pWAIC = NA))
             }
         },
         getWAICdetails = function(returnElements = logical(default = FALSE)) {
-            returnType(waicDetailsList())
+            returnType(waicDetailsNimbleList())
             if(enableWAIC & onlineWAIC) {
                 return(waicFun[[1]]$getDetails(returnElements))
             } else {
                 print("WAIC details are only available when using online WAIC. Online WAIC was disabled based on the 'onlineWAIC' element of WAIC control list.")
-                return(waicDetailsList$new(marginal = FALSE, niterMarginal = 0, thin = FALSE, online = FALSE))
+                return(waicDetailsNimbleList$new(marginal = FALSE, niterMarginal = 0, thin = FALSE, online = FALSE, nburnin_extra = 0))
             }
         }
     )

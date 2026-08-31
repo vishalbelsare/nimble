@@ -143,10 +143,10 @@ RCvirtualFunProcessing <- setRefClass(
     )
 )
 
-RCfunction <- function(f, name = NA, returnCallable = TRUE, check, where = NULL) {
+RCfunction <- function(f, name = NA, returnCallable = TRUE, check, buildDerivs = FALSE, where = NULL) {
     if(is.na(name))
         name <- rcFunLabelMaker(envName = environmentName(where))
-    nfm <- nfMethodRC$new(f, name, check = check, where = where)
+    nfm <- nfMethodRC$new(f, name, check = check, buildDerivs = buildDerivs, where = where)
     if(returnCallable)
         nfm$generateFunctionObject(keep.nfMethodRC = TRUE, where = where)
     else
@@ -226,10 +226,10 @@ RCfunProcessing <- setRefClass(
                            doKeywords = TRUE,
                            nimbleProject = NULL,
                            initialTypeInferenceOnly = FALSE) {
-            if(!is.null(nimbleOptions()$debugRCfunProcessing)) {
-                if(nimbleOptions()$debugRCfunProcessing) {
+            if(!is.null(getNimbleOption('debugRCfunProcessing'))) {
+                if(getNimbleOption('debugRCfunProcessing')) {
                     debug <- TRUE
-                    writeLines('Debugging RCfunProcessing (nimbleOptions()$debugRCfunProcessing is set to TRUE)') 
+                    writeLines("Debugging RCfunProcessing (nimbleOptions('debugRCfunProcessing') is set to TRUE)") 
                 }
             }
           
@@ -243,8 +243,8 @@ RCfunProcessing <- setRefClass(
 
             if(!initialTypeInferenceDone) {
                 
-                if(!is.null(nimbleOptions()$debugCppLineByLine)) {
-                    if(nimbleOptions()$debugCppLineByLine) {
+                if(!is.null(getNimbleOption('debugCppLineByLine'))) {
+                    if(getNimbleOption('debugCppLineByLine')) {
                         debugCpp <- TRUE
                         if(length(debugCppLabel) == 0) debugCppLabel <- name
                     }
@@ -317,13 +317,15 @@ RCfunProcessing <- setRefClass(
                 writeLines('***** READY FOR setSizes *****')
                 browser()
             }
-            
+
             compileInfo$typeEnv[['neededRCfuns']] <<- list()
             compileInfo$typeEnv[['.AllowUnknowns']] <<- TRUE ## will be FALSE for RHS recursion in setSizes
             compileInfo$typeEnv[['.ensureNimbleBlocks']] <<- FALSE ## will be TRUE for LHS recursion after RHS sees rmnorm and other vector dist "r" calls.
             compileInfo$typeEnv[['.allowFunctionAsArgument']] <<- FALSE ## will be TRUE when recursing on optim. See sizeOptim.
             compileInfo$typeEnv[['.nimbleProject']] <<- nimbleProject
-
+            compileInfo$typeEnv[['.new_ignore']] <<- character()
+            compileInfo$typeEnv[['.myUniqueName']] <<- RCfun$uniqueName
+            
             passedArgNames <-
                 as.list(compileInfo$origLocalSymTab$getSymbolNames()) 
             names(passedArgNames) <-
@@ -376,7 +378,7 @@ RCfunProcessing <- setRefClass(
                 browser()
             }
             
-            if(nimbleOptions('experimentalNewSizeProcessing')) {
+            if(getNimbleOption('experimentalNewSizeProcessing')) {
                 exprClasses_setToEigenize(compileInfo$nimExpr,
                                           compileInfo$newLocalSymTab,
                                           compileInfo$typeEnv)
@@ -475,7 +477,7 @@ RCfunProcessing <- setRefClass(
         },
         processKeywords = function(nfProc = NULL) {
             compileInfo$newRcode <<-
-                processKeywords_recurse(compileInfo$origRcode, nfProc)
+                processKeywords_recurse(compileInfo$origRcode, nfProc, .self)
         },
         matchKeywords = function(nfProc = NULL) {
             compileInfo$origRcode <<-

@@ -24,10 +24,10 @@
 #' parameter has to be larger than zero. Otherwise, \code{NaN} are returned.
 #' @return \code{dCRP} gives the density, and \code{rCRP} gives random generation.
 #' @references Blackwell, D., and MacQueen, J. B. (1973). Ferguson distributions via 
-#' P\'{o}lya urn schemes. \emph{The Annals of Statistics}, 1: 353-355.
+#' \enc{Pólya}{Polya} urn schemes. \emph{The Annals of Statistics}, 1: 353-355.
 #' 
-#' Aldous, D. J. (1985). Exchangeability and related topics. In \emph{\'{E}cole d'\'{E}t\'{e} 
-#' de Probabilit\'{e}s de Saint-Flour XIII - 1983} (pp. 1-198). Springer, Berlin, 
+#' Aldous, D. J. (1985). Exchangeability and related topics. In \emph{\enc{École}{Ecole} d'\enc{Été}{Ete} 
+#' de \enc{Probabilités}{Probabilites} de Saint-Flour XIII - 1983} (pp. 1-198). Springer, Berlin, 
 #' Heidelberg.
 #' 
 #' Pitman, J. (1996). Some developments of the Blackwell-MacQueen urn scheme. \emph{IMS Lecture
@@ -95,7 +95,7 @@ rCRP <- nimbleFunction(
         }
 
         x <- nimNumeric(size) 
-        x[1] <- 1
+        if(size > 0) x[1] <- 1
         if(size > 1) {
             numComponents <- 1
             ones <- rep(1, size)
@@ -160,7 +160,7 @@ stick_breaking <- nimbleFunction(
         N <- length(z)   
         cond <- any(z < 0 | z > 1)
         if(cond) {
-            nimCat("stick_breaking: values in 'z' have to be in (0,1).\n")
+            nimCat("  [Warning] stick_breaking: values in 'z' have to be in (0,1).\n")
             return(rep(NaN, N+1))
         }
     

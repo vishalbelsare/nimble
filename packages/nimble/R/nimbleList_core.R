@@ -27,10 +27,6 @@ nimbleListBase <- setRefClass(Class = 'nimbleListBase',
 #'
 #' Create a nimbleType object, with information on the name, type, and dimension of an object to be placed in a \code{\link{nimbleList}}.
 #'
-#' @param name The name of the object, given as a character string.
-#' @param type The type of the object, given as a character string.
-#' @param dim  The dimension of the object, given as an integer.  This can be left blank if the object is a nimbleList.
-#'
 #' @author NIMBLE development team
 #'
 #' @export
@@ -42,7 +38,7 @@ nimbleListBase <- setRefClass(Class = 'nimbleListBase',
 #' The \code{type} argument can be chosen from among \code{character}, \code{double}, \code{integer}, and \code{logical},
 #' or can be the name of a previously created \code{\link{nimbleList} definition}.
 #' 
-#' See the NIMBLE \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} for additional examples.
+#' See the NIMBLE \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} for additional examples.
 #' 
 #' @examples 
 #' nimbleTypeList <- list()
@@ -65,6 +61,14 @@ nimbleType <- setRefClass(
   )
 )
 
+is.nlGenerator <- function(x, inputIsName = FALSE, where = -1) {
+    if(inputIsName) x <- get(x, pos = where)
+    if(is.list(x) && is.function(x$new)) {
+        if(is.null(environment(x$new))) return(FALSE)
+        if(exists('nlDefClassObject', envir = environment(x$new), inherits = FALSE)) return(TRUE)
+    }
+    FALSE
+}
 
 #' create a nimbleList
 #'
@@ -97,7 +101,7 @@ nimbleType <- setRefClass(
 #'  ## this nimbleList definition is identical to the one created above
 #'  exampleNimListDef <- nimbleList(nimbleListTypes)
 nimbleList <- function(...,
-                       name = NA,
+                       name = as.character(NA),
                        predefined = FALSE,
                        where =  getNimbleFunctionEnvironment()) {
     ## This has a role like nimbleFunction but a much simpler implementation
@@ -111,12 +115,27 @@ nimbleList <- function(...,
     GENERATE_STATIC_CODE <- FALSE  ## Enable this before using generateStaticCode.R.
     if(GENERATE_STATIC_CODE) predefined <- FALSE
     
-  ## 3 possibilities: arguments as expressions, arguments as list created within call,
-  ## arguments as list created outside of call
-  
+    ## 3 possibilities: arguments as expressions, arguments as list created within call,
+    ## arguments as list created outside of call
+    
     Call <-  match.call(expand.dots = TRUE)
-    if(any(names(Call) == 'name')){
-      Call <- Call[-which(names(Call) == 'name')]
+    nms <- names(Call)
+    if(any(nms == 'name')) {
+        if(!is.character(Call[[which(nms == "name")]]))
+            stop("Elements of a nimbleList cannot be named `name`.")
+        Call <- Call[-which(names(Call) == 'name')]
+    }
+    nms <- names(Call)
+    if(any(nms == 'predefined')) {
+        if(!is.logical(Call[[which(nms == "predefined")]]))
+            stop("Elements of a nimbleList cannot be named `predefined`.")
+        Call <- Call[-which(nms == 'predefined')]
+    }
+    nms <- names(Call)
+    if(any(nms == 'where')) {
+        if(!is.environment(Call[[which(nms == "where")]]))
+            stop("Elements of a nimbleList cannot be named `where`.")
+        Call <- Call[-which(nms == 'where')]
     }
     if(length(Call) < 2)
       stop("No arguments specified for nimbleList")
@@ -145,19 +164,26 @@ nimbleList <- function(...,
     types <- list(vars = sapply(argList, function(x){return(x$name)}),
                   types =  sapply(argList, function(x){return(x$type)}),
                   dims =  sapply(argList, function(x){return(x$dim)}))
+
+    if(any(c('name','predefined','where') %in% types$vars))
+        stop("Elements of a nimbleList cannot be named `name`, `predefined` or `where`.")
+    
     if(is.na(name)) name <- nf_refClassLabelMaker()
     nlDefClassObject <- nimbleListDefClass(types = types, className = name, predefined = predefined) 
     basicTypes <- c("double", "integer", "character", "logical")
     nestedListGens <- list()
     for(i in seq_along(types$types)){
         if(!(types$types[i] %in% basicTypes)){
-        for(searchEnvironment in c(parent.frame(), globalenv())){
-          if(try(is.nlGenerator(get(types$types[i], envir = searchEnvironment)), silent = TRUE)){
-            nestedListGens[[types$vars[i]]] <- get(types$types[i], envir = searchEnvironment)
-            break
-          }
+            for(searchEnvironment in c(parent.frame(), globalenv())){
+                ## It could become necessary to add "asNamespace("nimble")" to the searchEnvironment list
+                found_nlGen <- try(get(types$types[i], envir = searchEnvironment), silent = TRUE)
+                if(!inherits(found_nlGen, 'try-error')){
+                    if(is.nlGenerator(found_nlGen))
+                        nestedListGens[[types$vars[i]]] <- found_nlGen
+                    break
+                }
+            }
         }
-      }
     }
     
     classFields <- as.list(rep('ANY', length(types$vars)))
@@ -196,6 +222,16 @@ nimbleList <- function(...,
               initValue <- nestedListGenList[[nimListFields[i]]]$new()
             }
             else(stop(paste("unrecognized type given for nimbleList element", nimListFields[i])))
+            ## if(nimListFields[i] %in% names(unknownListGenList)) {
+##               found_nlGen <- try(get(unknownListGenList[[nimListFields[i]]]), silent = TRUE)
+##               if(!inherits(found_nlGen, 'try-error')) {
+## #                if(is.nlGenerator(found_nlGen)) {
+##                   initValue <- found_nlGen$new()
+##                   .self$nestedListGenList[[ nimListFields[i] ]] <- found_nlGen
+## #                }
+##               }
+##              } else
+##              (stop(paste("unrecognized type given for nimbleList element", nimListFields[i])))
             eval(substitute(.self[[nimListFields[i]]] <<-initValue))
           }   
         },
@@ -282,11 +318,11 @@ nlProcessing <- setRefClass('nlProcessing',
                                 process = function(control = list(debug = FALSE, debugCpp = FALSE)) {
                                     debug <- control$debug
                                     debugCpp <- control$debugCpp
-                                    if(!is.null(nimbleOptions()$debugNFProcessing)) {
-                                        if(nimbleOptions()$debugNFProcessing) {
+                                    if(!is.null(getNimbleOption('debugNFProcessing'))) {
+                                        if(getNimbleOption('debugNFProcessing')) {
                                             debug <- TRUE
                                             control$debug <- TRUE
-                                            writeLines('Debugging nfProcessing (nimbleOptions()$debugRCfunProcessing is set to TRUE)') 
+                                            writeLines("Debugging nfProcessing (nimbleOption('debugRCfunProcessing')) is set to TRUE)") 
                                         }
                                     }
                                     if(debug) browser()
@@ -354,9 +390,9 @@ svdNimbleList <-  nimbleList(list(nimbleType('d', 'double', 1),
                                   nimbleType('v', 'double', 2)), name = "EIGEN_SVDCLASS", predefined = TRUE)
 
 
-#' waicList definition
+#' waicNimbleList definition
 #' 
-#' \code{waicList} definition for the \code{nimbleList} type returned by WAIC
+#' \code{waicNimbleList} definition for the \code{nimbleList} type returned by WAIC
 #' computation.
 #'
 #' @details
@@ -367,18 +403,18 @@ svdNimbleList <-  nimbleList(list(nimbleType('d', 'double', 1),
 #'
 #' @export
 #' 
-waicList <- nimbleList(
+waicNimbleList <- nimbleList(
     list(
         nimbleType('WAIC', 'double', 0),
         nimbleType('lppd', 'double', 0),
         nimbleType('pWAIC', 'double', 0)
-    ), name = 'waicList',
+    ), name = 'waicNimbleList',
     predefined = TRUE
 )
     
-#' waicDetailsList definition
+#' waicDetailsNimbleList definition
 #' 
-#' \code{waicDetailsList} definition for the \code{nimbleList} type returned by WAIC
+#' \code{waicDetailsNimbleList} definition for the \code{nimbleList} type returned by WAIC
 #' computation.
 #'
 #' @details
@@ -389,12 +425,13 @@ waicList <- nimbleList(
 #'
 #' @export
 #' 
-waicDetailsList <- nimbleList(
+waicDetailsNimbleList <- nimbleList(
     list(
         nimbleType('marginal', 'logical', 0),
         nimbleType('niterMarginal', 'double', 0),
         nimbleType('thin', 'logical', 0),
         nimbleType('online', 'logical', 0),
+        nimbleType('nburnin_extra', 'double', 0),
 
         ## values for shorter MC runs to assess convergence for marginal calculation
         nimbleType('WAIC_partialMC', 'double', 1),
@@ -407,29 +444,27 @@ waicDetailsList <- nimbleList(
         nimbleType('lppd_elements', 'double', 1),
         nimbleType('pWAIC_elements', 'double', 1)
 
-    ), name = 'waicDetailsList',
+    ), name = 'waicDetailsNimbleList',
     predefined = TRUE
 )
 
 
-#' EXPERIMENTAL Data type for the return value of \code{\link{nimDerivs}}
+#' Data type for the return value of \code{\link{nimDerivs}}
 #'
 #' \code{\link{nimbleList}} definition for the type of \code{\link{nimbleList}} returned by \code{\link{nimDerivs}}.
 #'
 #' @field value The value of the function evaluated at the given input arguments. 
-#' @field gradient	The gradient of the function evaluated at the given input arguments. 
+#' @field jacobian	The Jacobian of the function evaluated at the given input arguments. 
 #' @field hessian The Hessian of the function evaluated at the given input arguments. 
-#' @field thirdDerivs Currently unused.
 #'
 #' @export
 #' @seealso \code{\link{nimDerivs}}
 ADNimbleList <-  nimbleList(list(nimbleType('value', 'double', 1),
-                                 nimbleType('gradient', 'double', 2),
-                                 nimbleType('hessian', 'double', 3),
-                                 nimbleType('thirdDerivs', 'double', 4)),
+                                 nimbleType('jacobian', 'double', 2),
+                                 nimbleType('hessian', 'double', 3)),
                             name = "NIMBLE_ADCLASS", predefined = TRUE)
 
-#' EXPERIMENTAL Data type for the return value of \code{\link{nimOptim}}
+#' Data type for the return value of \code{\link{nimOptim}}
 #'
 #' \code{\link{nimbleList}} definition for the type of \code{\link{nimbleList}} returned by \code{\link{nimOptim}}.
 #'
@@ -459,7 +494,7 @@ optimResultNimbleList <- nimbleList(
     predefined = TRUE
 )
 
-#' EXPERIMENTAL Data type for the \code{control} parameter of \code{\link{nimOptim}}
+#' Data type for the \code{control} parameter of \code{\link{nimOptim}}
 #'
 #' \code{\link{nimbleList}} definition for the type of \code{\link{nimbleList}} input as the \code{control} parameter
 #' to \code{\link{nimOptim}}. See \code{\link{optim}} for details.
@@ -490,12 +525,37 @@ optimControlNimbleList <- nimbleList(
     predefined = TRUE
 )
 
+#' @export
+AGHQuad_params <- nimbleList(
+  list(
+    nimbleType('names','character', 1),
+    nimbleType('estimate', 'double', 1),
+    nimbleType('stdError', 'double', 1)
+  ),
+  name = "AGHQuad_params",
+  predefined = TRUE
+)
+
+#' @export
+AGHQuad_summary <- nimbleList(
+  list(
+    nimbleType('params','AGHQuad_params', 0),
+    nimbleType('randomEffects', 'AGHQuad_params', 0),
+    nimbleType('vcov','double',2),
+    nimbleType('originalScale','logical',1)
+  ),
+  name = 'AGHQuad_summary',
+  predefined = TRUE
+)
+
 ## any DSL functions that return nimbleLists should be added to the list below, in the form:
 ## functionName = list(nlGen = nimbleList definition, cppName = name of cpp function corresponding to dsl function)
 nimbleListReturningFunctionList <- list(nimEigen = list(nlGen = eigenNimbleList, cppName = 'EIGEN_EIGEN'),
                                         nimSvd = list(nlGen = svdNimbleList, cppName = "EIGEN_SVD"),
-                                        nimDerivs = list(nlGen = ADNimbleList, cppName = "NIM_DERIVS"),
-                                        getDerivs = list(nlGen = ADNimbleList, cppName = 'getDerivs'),
+                                       ## nimDerivs = list(nlGen = ADNimbleList, cppName = "NIM_DERIVS"),
+                                        nimDerivs_calculate = list(nlGen = ADNimbleList, cppName = "nimDerivs_calculate"),
+                                        getDerivs_wrapper = list(nlGen = ADNimbleList, cppName = 'getDerivs_wrapper'),
+                                        nimDerivs_dummy = list(nlGen = ADNimbleList, cppName = 'nimDerivs_dummy'),
                                         nimOptim = list(nlGen = optimResultNimbleList, cppName = "OptimResultNimbleList"),
                                         nimOptimDefaultControl = list(nlGen = optimControlNimbleList, cppName = "OptimControlNimbleList"))
 
@@ -514,15 +574,6 @@ nimbleListReturningFunctionList <- list(nimEigen = list(nlGen = eigenNimbleList,
 is.nl <- function(l){
   if(inherits(l, 'nimbleListBase')) return(TRUE)
   return(FALSE)
-}
-
-is.nlGenerator <- function(x, inputIsName = FALSE, where = -1) {
-    if(inputIsName) x <- get(x, pos = where)
-    if(is.list(x) && is.function(x$new)) {
-        if(is.null(environment(x$new))) return(FALSE)
-        if(exists('nlDefClassObject', envir = environment(x$new), inherits = FALSE)) return(TRUE)
-    }
-    FALSE
 }
 
 nl.getGenerator <- function(nl) {

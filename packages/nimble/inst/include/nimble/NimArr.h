@@ -72,7 +72,8 @@ template<int nDim, class T, class T2>
     target.getVptrRef() = ans;
     target.mapCopy(val);
   } else {
-    std::copy(val.getConstPtr(), val.getConstPtr() + length, *ans);
+    if(length > 0)
+      std::copy(val.getConstPtr(), val.getConstPtr() + length, *ans);
   }
 }
 
@@ -91,6 +92,19 @@ template<int nDim, class T>
   return true;
 }
 
+// needed for some dists and some deriv functions
+// Was previously in nimDists.cpp
+template<int nDim, class T>
+NimArr<nDim, T> &nimArrCopyIfNeeded(NimArr<nDim, T> &orig, NimArr<nDim, T> &possibleCopy) {
+  if(orig.isMap()) {
+    if(!isMapEntire<nDim, T>(orig)) {
+      possibleCopy = orig;
+      return(possibleCopy);
+    }
+  }
+  return(orig);
+}
+
 // Here is the specialization for 1 dimensions (for any type, T = double, int or
 // bool).
 template <class T>
@@ -106,7 +120,7 @@ class NimArr<1, T> : public NimArrBase<T> {
     return (*NimArrBase<T>::vPtr)[calculateIndex(i)];
   }
 
-  ~NimArr<1, T>() {}
+  ~NimArr() {}
 
   template <class Tother>
   NimArr<1, T> &mapCopy(const NimArr<1, Tother> &other) {
@@ -159,7 +173,8 @@ class NimArr<1, T> : public NimArrBase<T> {
       if (NimArrBase<T>::own_v) nimble_free(NimArrBase<T>::v);
       NimArrBase<T>::v = nimble_malloc<T>(size1);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + size1, NimArrBase<T>::v);
+      if (size1 > 0)
+        std::copy(other.v, other.v + size1, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
     return *this;
@@ -198,13 +213,14 @@ class NimArr<1, T> : public NimArrBase<T> {
       if (NimArrBase<T>::own_v) nimble_free(NimArrBase<T>::v);
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
     return (*this);
   }
 
-  NimArr<1, T>(const NimArr<1, T> &other) : NimArrBase<T>(other) {
+  NimArr(const NimArr<1, T> &other) : NimArrBase<T>(other) {
     NimArrBase<T>::NAdims[0] = other.dim()[0]; // redundant with base class copy constructor?
     size1 = NimArrBase<T>::NAdims[0];
 
@@ -225,12 +241,13 @@ class NimArr<1, T> : public NimArrBase<T> {
     } else {
       NimArrBase<T>::v = nimble_malloc<T>(size1);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + size1, NimArrBase<T>::v);
+      if (size1 > 0)
+        std::copy(other.v, other.v + size1, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
   }
 
-  NimArr<1, T>() : NimArrBase<T>() { setSize(0); }
+  NimArr() : NimArrBase<T>() { setSize(0); }
 
   void setMap(NimArrBase<T> &source, int off, int str1, int is1) {
     if (NimArrBase<T>::own_v) nimble_free(NimArrBase<T>::v);
@@ -267,13 +284,13 @@ class NimArr<1, T> : public NimArrBase<T> {
     mapTo.mapCopy(mapFrom);
   }
 
-  NimArr<1, T>(vector<T> &vm, int off, int str1, int is1)
+  NimArr(vector<T> &vm, int off, int str1, int is1)
       : NimArrBase<T>(vm, off) {
     NimArrBase<T>::NAdims[0] = NimArrBase<T>::NAlength = size1 = is1;
     NimArrBase<T>::NAstrides[0] = NimArrBase<T>::stride1 = str1;
   }
 
-  NimArr<1, T>(int is1) : NimArrBase<T>() { setSize(is1); }
+  NimArr(int is1) : NimArrBase<T>() { setSize(is1); }
 
   void initialize(T value, bool init, int is1) {
     setSize(is1, false, false);
@@ -339,7 +356,7 @@ class NimArr<2, T> : public NimArrBase<T> {
     return (*NimArrBase<T>::vPtr)[calculateIndex(divRes.rem, divRes.quot)];
   }
 
-  ~NimArr<2, T>() {}
+  ~NimArr() {}
 
   template <class Tother>
   NimArr<2, T> &mapCopy(const NimArr<2, Tother> &other) {
@@ -408,13 +425,14 @@ class NimArr<2, T> : public NimArrBase<T> {
       if (NimArrBase<T>::own_v) nimble_free(NimArrBase<T>::v);
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
     return *this;
   }
 
-  NimArr<2, T>(const NimArr<2, T> &other) : NimArrBase<T>(other) {
+  NimArr(const NimArr<2, T> &other) : NimArrBase<T>(other) {
     std::memcpy(NimArrBase<T>::NAdims, other.dim(), 2 * sizeof(int));
 
     size1 = NimArrBase<T>::NAdims[0];
@@ -441,12 +459,13 @@ class NimArr<2, T> : public NimArrBase<T> {
     } else {
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
   }
 
-  NimArr<2, T>() : NimArrBase<T>() { setSize(0, 0); }
+  NimArr() : NimArrBase<T>() { setSize(0, 0); }
 
   void setMap(NimArrBase<T> &source, int off, int str1, int str2, int is1,
               int is2) {
@@ -490,7 +509,7 @@ class NimArr<2, T> : public NimArrBase<T> {
     mapTo.mapCopy(mapFrom);
   }
 
-  NimArr<2, T>(vector<T> &vm, int off, int str1, int str2, int is1, int is2)
+  NimArr(vector<T> &vm, int off, int str1, int str2, int is1, int is2)
       : NimArrBase<T>(vm, off) {
     NimArrBase<T>::NAdims[0] = size1 = is1;
     NimArrBase<T>::NAdims[1] = size2 = is2;
@@ -500,7 +519,7 @@ class NimArr<2, T> : public NimArrBase<T> {
     NimArrBase<T>::NAstrides[1] = stride2 = str2;
   }
 
-  NimArr<2, T>(int is1, int is2) : NimArrBase<T>() { setSize(is1, is2); }
+  NimArr(int is1, int is2) : NimArrBase<T>() { setSize(is1, is2); }
 
   void initialize(T value, bool init, int is1, int is2) {
     setSize(is1, is2, false, false);
@@ -570,7 +589,7 @@ class NimArr<3, T> : public NimArrBase<T> {
                                                  divRes2.quot)];
   }
 
-  ~NimArr<3, T>() {}
+  ~NimArr() {}
 
   template <class Tother>
   NimArr<3, T> &mapCopy(const NimArr<3, Tother> &other) {
@@ -653,13 +672,14 @@ class NimArr<3, T> : public NimArrBase<T> {
       if (NimArrBase<T>::own_v) nimble_free(NimArrBase<T>::v);
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
     return *this;
   }
 
-  NimArr<3, T>(const NimArr<3, T> &other) : NimArrBase<T>(other) {
+  NimArr(const NimArr<3, T> &other) : NimArrBase<T>(other) {
     std::memcpy(NimArrBase<T>::NAdims, other.dim(), 3 * sizeof(int));
     size1 = NimArrBase<T>::NAdims[0];
     size2 = NimArrBase<T>::NAdims[1];
@@ -691,12 +711,13 @@ class NimArr<3, T> : public NimArrBase<T> {
     } else {
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
   }
 
-  NimArr<3, T>() : NimArrBase<T>() { setSize(0, 0, 0); }
+  NimArr() : NimArrBase<T>() { setSize(0, 0, 0); }
 
   void setMap(NimArrBase<T> &source, int off, int str1, int str2, int str3,
               int is1, int is2, int is3) {
@@ -745,7 +766,7 @@ class NimArr<3, T> : public NimArrBase<T> {
     mapTo.mapCopy(mapFrom);
   }
 
-  NimArr<3, T>(vector<T> &vm, int off, int str1, int str2, int str3, int is1,
+  NimArr(vector<T> &vm, int off, int str1, int str2, int str3, int is1,
                int is2, int is3)
       : NimArrBase<T>(vm, off) {
     NimArrBase<T>::NAdims[0] = size1 = is1;
@@ -759,7 +780,7 @@ class NimArr<3, T> : public NimArrBase<T> {
     NimArrBase<T>::NAlength = size1 * size2 * size3;
   }
 
-  NimArr<3, T>(int is1, int is2, int is3) : NimArrBase<T>() {
+  NimArr(int is1, int is2, int is3) : NimArrBase<T>() {
     setSize(is1, is2, is3);
   }
 
@@ -838,7 +859,7 @@ class NimArr<4, T> : public NimArrBase<T> {
                                                  divRes3.rem, divRes3.quot)];
   }
 
-  ~NimArr<4, T>() {}
+  ~NimArr() {}
 
   template <class Tother>
   NimArr<4, T> &mapCopy(const NimArr<4, Tother> &other) {
@@ -936,13 +957,14 @@ class NimArr<4, T> : public NimArrBase<T> {
       if (NimArrBase<T>::own_v) nimble_free(NimArrBase<T>::v);
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
     return *this;
   }
 
-  NimArr<4, T>(const NimArr<4, T> &other) : NimArrBase<T>(other) {
+  NimArr(const NimArr<4, T> &other) : NimArrBase<T>(other) {
     std::memcpy(NimArrBase<T>::NAdims, other.dim(), 4 * sizeof(int));
     size1 = NimArrBase<T>::NAdims[0];
     size2 = NimArrBase<T>::NAdims[1];
@@ -981,12 +1003,13 @@ class NimArr<4, T> : public NimArrBase<T> {
     } else {
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
   }
 
-  NimArr<4, T>() : NimArrBase<T>() { setSize(0, 0, 0, 0); }
+  NimArr() : NimArrBase<T>() { setSize(0, 0, 0, 0); }
 
   void setMap(NimArrBase<T> &source, int off, int str1, int str2, int str3,
               int str4, int is1, int is2, int is3, int is4) {
@@ -1040,7 +1063,7 @@ class NimArr<4, T> : public NimArrBase<T> {
     mapTo.mapCopy(mapFrom);
   }
 
-  NimArr<4, T>(vector<T> &vm, int off, int str1, int str2, int str3, int str4,
+  NimArr(vector<T> &vm, int off, int str1, int str2, int str3, int str4,
                int is1, int is2, int is3, int is4)
       : NimArrBase<T>(vm, off) {
     NimArrBase<T>::NAdims[0] = size1 = is1;
@@ -1056,7 +1079,7 @@ class NimArr<4, T> : public NimArrBase<T> {
     NimArrBase<T>::NAlength = size1 * size2 * size3 * size4;
   }
 
-  NimArr<4, T>(int is1, int is2, int is3, int is4) : NimArrBase<T>() {
+  NimArr(int is1, int is2, int is3, int is4) : NimArrBase<T>() {
     setSize(is1, is2, is3, is4);
   }
 
@@ -1144,7 +1167,7 @@ class NimArr<5, T> : public NimArrBase<T> {
 						 divRes4.quot)];
   }
 
-  ~NimArr<5, T>() {}
+  ~NimArr() {}
 
   template <class Tother>
   NimArr<5, T> &mapCopy(const NimArr<5, Tother> &other) {
@@ -1257,13 +1280,14 @@ class NimArr<5, T> : public NimArrBase<T> {
       if (NimArrBase<T>::own_v) nimble_free(NimArrBase<T>::v);
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
     return *this;
   }
 
-  NimArr<5, T>(const NimArr<5, T> &other) : NimArrBase<T>(other) {
+  NimArr(const NimArr<5, T> &other) : NimArrBase<T>(other) {
     std::memcpy(NimArrBase<T>::NAdims, other.dim(), 5 * sizeof(int));
     size1 = NimArrBase<T>::NAdims[0];
     size2 = NimArrBase<T>::NAdims[1];
@@ -1308,12 +1332,13 @@ class NimArr<5, T> : public NimArrBase<T> {
     } else {
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
   }
 
-  NimArr<5, T>() : NimArrBase<T>() { setSize(0, 0, 0, 0, 0); }
+  NimArr() : NimArrBase<T>() { setSize(0, 0, 0, 0, 0); }
 
   void setMap(NimArrBase<T> &source, int off, int str1, int str2, int str3,
               int str4, int str5, int is1, int is2, int is3, int is4, int is5) {
@@ -1371,7 +1396,7 @@ class NimArr<5, T> : public NimArrBase<T> {
     mapTo.mapCopy(mapFrom);
   }
 
-  NimArr<5, T>(vector<T> &vm, int off, int str1, int str2, int str3, int str4, int str5,
+  NimArr(vector<T> &vm, int off, int str1, int str2, int str3, int str4, int str5,
                int is1, int is2, int is3, int is4, int is5)
       : NimArrBase<T>(vm, off) {
     NimArrBase<T>::NAdims[0] = size1 = is1;
@@ -1389,7 +1414,7 @@ class NimArr<5, T> : public NimArrBase<T> {
     NimArrBase<T>::NAlength = size1 * size2 * size3 * size4 * size5;
   }
 
-  NimArr<5, T>(int is1, int is2, int is3, int is4, int is5) : NimArrBase<T>() {
+  NimArr(int is1, int is2, int is3, int is4, int is5) : NimArrBase<T>() {
     setSize(is1, is2, is3, is4, is5);
   }
 
@@ -1485,7 +1510,7 @@ class NimArr<6, T> : public NimArrBase<T> {
 						 divRes5.rem, divRes5.quot)];
   }
 
-  ~NimArr<6, T>() {}
+  ~NimArr() {}
 
   template <class Tother>
   NimArr<6, T> &mapCopy(const NimArr<6, Tother> &other) {
@@ -1613,13 +1638,14 @@ class NimArr<6, T> : public NimArrBase<T> {
       if (NimArrBase<T>::own_v) nimble_free(NimArrBase<T>::v);
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
     return *this;
   }
 
-  NimArr<6, T>(const NimArr<6, T> &other) : NimArrBase<T>(other) {
+  NimArr(const NimArr<6, T> &other) : NimArrBase<T>(other) {
     std::memcpy(NimArrBase<T>::NAdims, other.dim(), 6 * sizeof(int));
     size1 = NimArrBase<T>::NAdims[0];
     size2 = NimArrBase<T>::NAdims[1];
@@ -1670,12 +1696,13 @@ class NimArr<6, T> : public NimArrBase<T> {
     } else {
       NimArrBase<T>::v = nimble_malloc<T>(NimArrBase<T>::NAlength);
       NimArrBase<T>::own_v = true;
-      std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
+      if (NimArrBase<T>::NAlength > 0)
+        std::copy(other.v, other.v + NimArrBase<T>::NAlength, NimArrBase<T>::v);
     }
     NimArrBase<T>::setVptr();
   }
 
-  NimArr<6, T>() : NimArrBase<T>() { setSize(0, 0, 0, 0, 0, 0); }
+  NimArr() : NimArrBase<T>() { setSize(0, 0, 0, 0, 0, 0); }
 
   void setMap(NimArrBase<T> &source, int off,
 	      int str1, int str2, int str3, int str4, int str5, int str6,
@@ -1738,7 +1765,7 @@ class NimArr<6, T> : public NimArrBase<T> {
     mapTo.mapCopy(mapFrom);
   }
 
-  NimArr<6, T>(vector<T> &vm, int off,
+  NimArr(vector<T> &vm, int off,
 	       int str1, int str2, int str3, int str4, int str5, int str6,
                int is1, int is2, int is3, int is4, int is5, int is6)
       : NimArrBase<T>(vm, off) {
@@ -1759,7 +1786,7 @@ class NimArr<6, T> : public NimArrBase<T> {
     NimArrBase<T>::NAlength = size1 * size2 * size3 * size4 * size5 * size6;
   }
 
-  NimArr<6, T>(int is1, int is2, int is3, int is4, int is5, int is6) : NimArrBase<T>() {
+  NimArr(int is1, int is2, int is3, int is4, int is5, int is6) : NimArrBase<T>() {
     setSize(is1, is2, is3, is4, is5, is6);
   }
 
@@ -1840,7 +1867,7 @@ class NimArr<6, T> : public NimArrBase<T> {
 template <int ndim, class T>
 class VecNimArr : public VecNimArrBase<T> {
  public:
-  ~VecNimArr<ndim, T>() {}
+  ~VecNimArr() {}
   std::vector<NimArr<ndim, T> > values;
   NimArr<ndim, T> &operator[](unsigned int i) {
     if (i >= values.size()) {

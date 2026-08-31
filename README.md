@@ -1,7 +1,6 @@
 # NIMBLE
 [![Build Status](https://github.com/nimble-dev/nimble/actions/workflows/ci.yaml/badge.svg?branch=devel)](https://github.com/nimble-dev/nimble/actions/workflows/ci.yaml)
-[![AppVeyor Build Status](https://ci.appveyor.com/api/projects/status/github/nimble-dev/nimble?branch=devel&svg=true)](https://ci.appveyor.com/project/nimble-dev/nimble)
-[![CRAN](http://www.r-pkg.org/badges/version/nimble)](https://CRAN.R-project.org/package=nimble)
+[![CRAN](https://www.r-pkg.org/badges/version/nimble)](https://CRAN.R-project.org/package=nimble)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.1211190.svg)](https://zenodo.org/record/1211190)
 [![Google Group](https://img.shields.io/badge/google-group-blue.svg)](https://groups.google.com/forum/#!forum/nimble-users)
 
@@ -14,7 +13,7 @@
 NIMBLE is an R package for hierarchical statistical modeling (aka
 graphical modeling).  It enables writing general models along with
 methods such as Markov chain Monte Carlo (MCMC), particle filtering
-(aka sequential Monte Carlo), and other general methods.
+(aka sequential Monte Carlo), Laplace approximation and other general methods.
 
 For writing statistical models, NIMBLE adopts and extends the BUGS
 language, making it largely compatible with
@@ -62,13 +61,11 @@ library(devtools)
 install.packages("nimble", type = "source", repos = "https://r-nimble.org")
 ```
 
-Note that NIMBLE's sequential Monte Carlo (SMC; aka particle filtering) methods are now (as of version 0.10.0) in the `nimbleSMC` package.
+Note that NIMBLE's Laplace approximation-related methods are (as of version 1.4.0) in the `nimbleQuad` package.
 
-Note that `MCMCsuite` and `compareMCMCs` are being migrated to the `compareMCMCs` package.  To install this:
-```r
-library(devtools)
-install_github("nimble-dev/compareMCMCs", subdir = "compareMCMCs")
-```
+Note that NIMBLE's sequential Monte Carlo (SMC; aka particle filtering) methods are (as of version 0.10.0) in the `nimbleSMC` package.
+
+Note that `MCMCsuite` and `compareMCMCs` have been migrated to the `compareMCMCs` package, now available on CRAN.
 
 ## Citation
 
@@ -81,7 +78,7 @@ NIMBLE. Journal of Computational and Graphical Statistics 26:403-413. [https://d
 
 In published work that uses NIMBLE, please also cite the package version:
 
-de Valpine, P., C. Paciorek, D. Turek, N. Michaud, C. Anderson-Bergman, F. Obermeyer, C. Wehrhahn Cortes, A. Rodriguez, D. Temple Lang, and S. Paganin. 2021. NIMBLE: MCMC, Particle Filtering, and Programmable Hierarchical Modeling.  doi: 10.5281/zenodo.1211190. R package version 0.12.1, https://cran.r-project.org/package=nimble.
+de Valpine, P., C. Paciorek, D. Turek, N. Michaud, C. Anderson-Bergman, F. Obermeyer, C. Wehrhahn Cortes, A. Rodriguez, D. Temple Lang, W. Zhang, S. Paganin, and P. van Dam-Bates. 2026. NIMBLE: MCMC, Particle Filtering, and Programmable Hierarchical Modeling.  doi: 10.5281/zenodo.1211190. R package version 1.4.3, https://cran.r-project.org/package=nimble.
 
 To help us track usage to justify funding support for NIMBLE, please include the DOI in the citation.
 
@@ -104,8 +101,9 @@ and depends on additional third-party libraries with compatible licenses.
 The development of NIMBLE has been funded by:
 
 * an NSF Advances in Biological Informatics grant (DBI-1147230) to P. de Valpine, C. Paciorek, and D. Temple Lang;
-* an NSF SI2-SSI grant  (ACI-1550488) to P. de Valpine, C. Paciorek, and D. Temple Lang; and
-* an NSF Collaborative Research grant (DMS-1622444) to P. de Valpine, A. Rodriguez, and C. Paciorek.
+* an NSF SI2-SSI grant  (ACI-1550488) to P. de Valpine, C. Paciorek, and D. Temple Lang;
+* an NSF Collaborative Research grant (DMS-1622444) to P. de Valpine, A. Rodriguez, and C. Paciorek; and
+* an NSF Collaborative Research grant (DMS-2152860) to P. de Valpine, C. Paciorek, and D. Turek.
 
 with additional support provided by postdoctoral funding for D. Turek from the Berkeley Institute for Data Science and Google Summer of Code fellowships for N. Michaud (2015) and C. Lewis-Beck (2017).
 

@@ -3,17 +3,17 @@
  * Copyright (C) 2014-2017 Perry de Valpine, Christopher Paciorek,
  * Daniel Turek, Clifford Anderson-Bergman, Nick Michaud, Fritz Obermeyer,
  * Duncan Temple Lang.
- * 
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, a copy is available at
  * https://www.R-project.org/Licenses/
@@ -29,6 +29,51 @@
 #include<limits>
 #include<string>
 #include<time.h>
+#include<cppad/cppad.hpp>
+
+#include <Rversion.h>
+// chicken-and-egg: we need to check version, but the R_Version macro won't be there in old versions
+#ifndef R_Version
+#define R_Version(a,b,c) (((a) << 16) + ((b) << 8) + (c))
+#endif
+
+
+#if R_VERSION < R_Version(4, 5, 0)
+// #define NIM_FINDVARINFRAME(env, sym) \
+//    Rf_findVarInFrame(env, sym)
+static inline SEXP NIM_FINDVARINFRAME(SEXP Senv, SEXP Ssym) {
+    return Rf_findVarInFrame(Senv, Ssym);
+}
+static inline SEXP NIM_FINDVAR(SEXP Senv, SEXP Ssym) {
+    return Rf_findVar(Senv, Ssym);
+}
+// #define NIM_FINDVAR(env, sym) \
+//    Rf_findVar(env, sym)
+#else
+// #define NIM_FINDVARINFRAME(env, sym) \
+//     SEXP sym_ = TYPEOF(sym) == SYMSXP ? (sym) : Rf_install(CHAR(Rf_asChar(sym))); \
+//     R_getVar(sym_, env, FALSE)
+// #define NIM_FINDVAR(env, sym) \
+//     SEXP sym_ = TYPEOF(sym) == SYMSXP ? (sym) : Rf_install(CHAR(Rf_asChar(sym))); \
+//     R_getVar(sym_, env, TRUE)
+static inline SEXP NIM_FINDVARINFRAME(SEXP Senv, SEXP Ssym) {
+    if (TYPEOF(Senv) != ENVSXP) {
+        Rf_error("Senv was of type %s (a)",
+                 Rf_type2char(TYPEOF(Senv)));
+    }
+    SEXP sym__ = TYPEOF(Ssym) == SYMSXP ? Ssym : Rf_install(CHAR(Rf_asChar(Ssym)));
+    return R_getVar(sym__, Senv, FALSE);
+}
+static inline SEXP NIM_FINDVAR(SEXP Ssym, SEXP Senv) {
+    if (TYPEOF(Senv) != ENVSXP) {
+        Rf_error("Senv was of type %s (b)",
+                 Rf_type2char(TYPEOF(Senv)));
+    }
+    SEXP sym__ = TYPEOF(Ssym) == SYMSXP ? Ssym : Rf_install(CHAR(Rf_asChar(Ssym)));
+    return R_getVar(sym__, Senv, TRUE);
+}
+#endif
+
 using std::string;
 
 //using namespace std;
@@ -75,7 +120,7 @@ class nimbleTimerClass_ {
                 #my_array " has wrong size: expected %d, actual %d", n, \
                 my_array.dimSize(0));
 
-// code copied from nmath.h - useful utilities 
+// code copied from nmath.h - useful utilities
 # define MATHLIB_ERROR(fmt,x)		Rf_error(fmt,x);
 # define MATHLIB_WARNING(fmt,x)		Rf_warning(fmt,x)
 # define MATHLIB_WARNING2(fmt,x,x2)	Rf_warning(fmt,x,x2)
@@ -105,7 +150,7 @@ class nimbleTimerClass_ {
 
 #define ML_ERR_return_NAN { ML_ERROR(ME_DOMAIN, ""); return ML_NAN; }
 
-#define ML_ERROR(x, s) { \
+#define ML_ERROR(x, s) {                        \
    if(x > ME_DOMAIN) { \
        const char *msg = ""; \
        switch(x) { \
@@ -152,13 +197,19 @@ class nimbleTimerClass_ {
 	return R_D__0;					\
    }
 
-#define EIGEN_CHOL(x)       (x).selfadjointView<Eigen::Upper>().llt().matrixU()
+#define EIGEN_CHOL(x)       (x).template selfadjointView<Eigen::Upper>().llt().matrixU()
+#define nimDerivs_EIGEN_CHOL_no_atomic(x)       (x).template selfadjointView<Eigen::Upper>().llt().matrixU()
 //#define EIGEN_SOLVE(x,y)    (x).lu().solve(y)
 //#define EIGEN_FS(x,y)       (x).triangularView<Eigen::Lower>().solve(y)
 //#define EIGEN_BS(x,y)       (x).triangularView<Eigen::Upper>().solve(y)
 
 bool decide(double lMHr);
 //void allocate(vector< vector <double> > *vv, int sampleSize, int variableSize);
+
+void checkLogProbWarn(std::string target);
+
+static inline double checkLogProb(double logProb, std::string target) { if(ISNAN(logProb))  return(-std::numeric_limits<double>::infinity()); if(logProb == std::numeric_limits<double>::infinity()) checkLogProbWarn(target); return(logProb);}
+
 
 void nimStop(string msg);
 void nimStop();
@@ -167,30 +218,163 @@ bool nimNot(bool x);
 
 static inline bool isTRUE(bool x) {return(x);}
 
+inline double pow_int(double a, double b) {return pow(a, round(b));}
+inline double pow_int(double a, int b) {return pow(a, static_cast<double>(b));}
+
+// All the nimDerivs_FOO functions
+// were templated, but in a rush we
+// had to change some generated code to
+// std::function< CppAD::AD<double>(CppAD::AD<double) >( nimDerivs_FOO )
+// That does not do template type inference. And there are cases
+// where nimDerivs_FOO is not a template.
+// Quick solution is to remove the templating here, since
+// in practice T is always CppAD::AD<double>, and get that
+// hard-wired in.  There is an #undef at the end.
+#define T CppAD::AD<double>
+
 // needed for link functions
-double ilogit(double x);
-double icloglog(double x);
-double iprobit(double x);
-double probit(double x);
+inline double ilogit(double x) {return(1./(1. + exp(-x)));}
+//template<class T>
+inline T nimDerivs_ilogit(T x){
+  return(1./(1. + exp(-x)));
+}
+
+inline double icloglog(double x) {return(1.-exp(-exp(x)));}
+//template<class T>
+inline T nimDerivs_icloglog(T x){
+  return(1.-exp(-exp(x)));
+}
+
+inline double iprobit(double x) {return(pnorm(x, 0., 1., 1, 0));}
+inline double probit(double x) {return(qnorm(x, 0., 1., 1, 0));}
+
 //double abs(double x);
-double cloglog(double x);
-int nimEquals(double x1, double x2);
-double nimbleIfElse(bool condition, double x1, double x2);
-double lfactorial(double x);
-double factorial(double x);
+inline double cloglog(double x) {return(log(-log(1.-x)));}
+//template<class T>
+inline T nimDerivs_cloglog(T x){
+  return(log(-log(T(1) - x)));
+}
+
+inline int nimEquals(double x1, double x2) {return(x1 == x2 ? 1 : 0);}
+//template<class T>
+// inline T nimDerivs_nimEquals(T x1, T x2){
+//   T cond = nimDerivs_nimStep(x1-x2) * nimDerivs_nimStep(x2-x1);
+//   return cond;
+// //  return(CondExpEq(x1, x2, T(1), T(0)));
+// }
+
+// inline T nimDerivs_CondExpGe(T x1, T x2, T y1, T y2) {
+//   T cond = nimDerivs_nimStep(x1-x2);
+//   return cond*y1 + (T(1) - cond)*y2;
+// }
+
+// inline T nimDerivs_CondExpGt(T x1, T x2, T y1, T y2) {
+//   T cond = 1-nimDerivs_nimStep(x2-x1);
+//   return cond*y1 + (T(1) - cond)*y2;
+// }
+
+// inline T nimDerivs_CondExpLe(T x1, T x2, T y1, T y2) {
+//   T cond = nimDerivs_nimStep(x2-x1);
+//   return cond*y1 + (T(1) - cond)*y2;
+// }
+
+// inline T nimDerivs_CondExpLt(T x1, T x2, T y1, T y2) {
+//   T cond = 1-nimDerivs_nimStep(x1-x2);
+//   return cond*y1 + (T(1) - cond)*y2;
+// }
+
+inline double nimbleIfElse(bool condition, double x1, double x2) {return(condition ? x1 : x2);}
+inline double lfactorial(double x) {return(lgammafn(x + 1));}
+inline double factorial(double x) {return(gammafn(1+x));}
 //double loggam(double x);
-double logit(double x);
-double nimRound(double x);
-double pairmax(double x1, double x2);
-double pairmin(double x1, double x2);
+inline double logit(double x) {return(log(x / (1.-x)));}
+//template<class T>
+inline T nimDerivs_logit(T x) {
+  return(log(x / (T(1)-x)));
+}
+
+inline double nimRound(double x) {return(round(x));}
+inline double pairmax(double x1, double x2) {return(x1 > x2 ? x1 : x2);}
+//template<class T>
+// inline T nimDerivs_pairmax(T x1, T x2) {
+//   T cond = nimStep(x1-x2);
+//   return cond*x1 + (T(1) - cond)*x2;
+//   //  return(CondExpGt(x1, x2, x1, x2));
+// }
+
+inline double pairmin(double x1, double x2) {return(x1 < x2 ? x1 : x2);}
+//template<class T>
+// inline T nimDerivs_pairmin(T x1, T x2) {
+//   T cond = nimStep(x1-x2);
+//   return (T(1)-cond)*x1 + cond*x2;
+// //  return(CondExpLt(x1, x2, x1, x2));
+// }
+
 //double phi(double x);
-int nimStep(double x); 
-double cube(double x);
-double inprod(double v1, double v2);
+inline int nimStep(double x) { return(x >= 0 ? 1 : 0);}
+//template<class T>
+//inline T nimDerivs_nimStep(T x){
+//	return(CondExpGe(x, T(0), T(1), T(0)));
+//}
+
+inline double cube(double x) {return(x*x*x);}
+//template<class T>
+inline T nimDerivs_cube(T x){
+	return(x*x*x);
+}
+
+inline double inprod(double v1, double v2) {return(v1*v2);}
+//template<class T>
+inline T nimDerivs_inprod(T v1, T v2) {
+  return(v1*v2);
+}
+
+//template<class T>
+inline T nimDerivs_atan(T x) {
+  return(CppAD::atan(x));
+}
+
+//template<class T>
+inline T nimDerivs_cosh(T x) {
+  return(CppAD::cosh(x));
+}
+
+//template<class T>
+inline T nimDerivs_sinh(T x) {
+  return(CppAD::sinh(x));
+}
+
+//template<class T>
+inline T nimDerivs_tanh(T x) {
+  return(CppAD::tanh(x));
+}
+
+//template<class T>
+inline T nimDerivs_acosh(T x) {
+  return(CppAD::acosh(x));
+}
+
+//template<class T>
+inline T nimDerivs_asinh(T x) {
+  return(CppAD::asinh(x));
+}
+
+//template<class T>
+inline T nimDerivs_atanh(T x) {
+  return(CppAD::atanh(x));
+}
+
+//template<class T>
+inline T nimDerivs_log1p(T x) {
+  return(CppAD::log1p(x));
+}
 
 inline double nimble_NaN() {
   return std::numeric_limits<double>::has_quiet_NaN
     ? std::numeric_limits<double>::quiet_NaN()
     : (0./0.);
 }
+
+#undef T
+
 #endif

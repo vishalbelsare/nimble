@@ -23,7 +23,7 @@ binaryMidPromoteNoLogicalOperators <- c('*','%%')
 binaryMidOperators <- c(binaryMidDoubleOperators,
                         binaryMidPromoteNoLogicalOperators)
 
-binaryLeftDoubleOperators <- c('pow','nimMod')
+binaryLeftDoubleOperators <- c('pow','nimMod', 'pow_int')
 binaryLeftPromoteOperators <- c('pmin','pmax','pairmin','pairmax')
 binaryLeftLogicalOperators <- c( 'nimEquals')
 binaryLeftOperators <- c(binaryLeftDoubleOperators,
@@ -35,8 +35,8 @@ binaryOperators <- c(binaryMidOperators,
 
 binaryOrUnaryOperators <- c('+','-')
 unaryPromoteNoLogicalOperators <- c('abs','cube')
-unaryIntegerOperators <- 'nimStep'
-unaryLogicalOperators <- '!'
+unaryIntegerOperators <- c('nimStep') 
+unaryLogicalOperators <- c('!', 'nimIsNA', 'nimIsNaN')
 unaryDoubleOperators <- c('exp',
                           'log',
                           'logit',
@@ -86,7 +86,7 @@ reductionUnaryOperatorsEither <- c(reductionUnaryDoubleOperatorsEither,
 reductionUnaryOperatorsArray <- c('sd','var')
 reductionUnaryOperators <- c(reductionUnaryOperatorsEither,
                              reductionUnaryOperatorsArray)
-matrixSquareReductionOperators <- c('det','logdet','trace')
+matrixSquareReductionOperators <- c('det','logdet')
 reductionBinaryOperatorsEither <- c('inprod')
 reductionBinaryOperators <- reductionBinaryOperatorsEither
 
@@ -121,7 +121,8 @@ matrixFlipOperators <- c('t')
 matrixSquareOperators <- c('chol','inverse')
 nimbleListReturningOperators <- c('nimEigen',
                                   'nimSvd',
-                                  'getDerivs')  ## These use sizeNimbleListReturningFunction. Note that nimOptim is handled separately.
+                                  'getDerivs_wrapper',
+                                  'nimDerivs_dummy')  ## These use sizeNimbleListReturningFunction. Note that nimOptim and nimDerivs_calculate are handled separately.
 matrixSolveOperators <- c('solve','forwardsolve','backsolve')
 passThroughOperators <- c('return')
 
@@ -193,6 +194,7 @@ callToSkipInEigenization <- c('copy',
                               'blank',
                               'rankSample',
                               'nimArr_dmnorm_chol',
+                              'nimArr_dmnorm_inv_ld',
                               'nimArr_dmvt_chol',
                               'nimArr_dlkj_corr_cholesky',
                               'nimArr_dwish_chol',
@@ -204,6 +206,7 @@ callToSkipInEigenization <- c('copy',
                               'nimArr_dinterval',
                               'nimArr_ddirch',
                               'nimArr_rmnorm_chol',
+                              'nimArr_rmnorm_inv_ld',
                               'nimArr_rmvt_chol',
                               'nimArr_rlkj_corr_cholesky',
                               'nimArr_rwish_chol',
@@ -310,11 +313,12 @@ eigProxyTranslateExternalUnary <- list(
     eigCeil = c('ceil', 'double', 'double'),
     eigFloor = c('floor', 'double', 'double'),
     eigNimStep = c('nimStep', 'double', 'int'),
-    'eig!' = c('nimNot','bool','bool', '!')
+    'eig!' = c('nimNot','bool','bool', '!'),
+    eigNimIsNA = c('nimIsNA', 'double', 'bool'),
+    eigNimIsNaN = c('nimIsNaN', 'double', 'bool')    
 )
 eigProxyCallsExternalUnary <- names(eigProxyTranslateExternalUnary)
 
-eigOtherMemberFunctionCalls <- c('cwiseSqrt', 'cwiseAbs')
 eigCalls <- c('matrix', 'array')
 cppCasts = list(as.numeric = 'double', as.integer = 'int')
 
@@ -332,4 +336,33 @@ operatorRank <- c(
          '|' = 14,
          '&&' = 13,
          '||' = 14)
+)
+
+nimDerivsPrependTypeOperators <- c("dnorm", "dpois", "dgamma", "dinvgamma", "dsqrtinvgamma",
+                                   "dexp_nimble", "dexp", "ddexp", "dlnorm", "dweibull",
+                                   "dbinom", "dbeta", "dchisq", "dlogis", "dt",
+                                   "dt_nonstandard", "nimArr_dmulti", "nimArr_dcat", "dnbinom", "dunif", "pairmax", "pairmin", 
+                                   "nimArr_ddirch", "nimArr_dmvt_chol", "nimArr_dmnorm_chol", "nimArr_dmnorm_inv_ld",
+                                   "PDinverse_logdet",
+                                   "nimArr_dwish_chol", "nimArr_dinvwish_chol", "nimArr_dlkj_corr_cholesky",
+                                   "nimArr_dcar_normal", "nimArr_dcar_proper",
+                                   "nimStep", 'ilogit', 'icloglog', 'iprobit', 'probit', 'cloglog',
+                                   "nimEquals", "lgammafn", "gammafn", "lfactorial", "factorial",
+                                   "logit", "floor", "ceil", "nimRound", "ftrunc",
+                                   "cube", "inprod",
+                                   "nimStep", "dflat", "dhalfflat")
+
+## Reflects distribution funs that support recycling rule with AD -- see nimDerivs_TMB.h.
+recyclingRuleOperatorsAD <- c(
+  'dbinom', 'dexp_nimble', 'dnbinom', 'dpois', 'dchisq', 'dbeta', 'dnorm', 'dgamma',
+  'dinvgamma', 'ddexp', 'dlnorm', 'dlogis', 'dunif', 'dweibull',
+  ## The following operators should work but are currently broken for various
+  ## reasons which are explained in test-ADfunctions.R.
+  'dexp', 'dsqrtinvgamma', 'dt_nonstandard', 'dt', 'pow_int'
+)
+recyclingRuleOperatorsAD <- paste0(
+    recyclingRuleOperatorsAD,
+    '_RR_impl<MatrixXd>::',
+    recyclingRuleOperatorsAD,
+    '_RecyclingRule'
 )

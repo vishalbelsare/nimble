@@ -6,11 +6,12 @@
 \usage{
 nimbleFunction(
   setup = NULL,
-  run = function() { },
+  run = function() {
+ },
   methods = list(),
   globalSetup = NULL,
   contains = NULL,
-  enableDerivs = list(),
+  buildDerivs = list(),
   name = NA,
   check = getNimbleOption("checkNimbleFunction"),
   where = getNimbleFunctionEnvironment()
@@ -27,7 +28,7 @@ nimbleFunction(
 
 \item{contains}{An optional object returned from \code{\link{nimbleFunctionVirtual}} that defines arguments and returnTypes for \code{run} and/or methods, to which the current nimbleFunction must conform}
 
-\item{enableDerivs}{EXPERIMENTAL A list of names of function methods to enable derivatives for.  Currently only for developer use.}
+\item{buildDerivs}{A list of names of function methods for which to build derivatives capabilities.}
 
 \item{name}{An optional name used internally, for example in generated C++ code.  Usually this is left blank and NIMBLE provides a name.}
 
@@ -39,7 +40,7 @@ nimbleFunction(
 create a nimbleFunction from a setup function, run function, possibly other methods, and possibly inheritance via \code{contains}
 }
 \details{
-This is the main function for defining nimbleFunctions.  A lot of information is provided in the NIMBLE \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual}, so only a brief summary will be given here.
+This is the main function for defining nimbleFunctions.  A lot of information is provided in the NIMBLE \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual}, so only a brief summary will be given here.
 
 If a \code{setup} function is provided, then \code{nimbleFunction} returns a generator: a function that when called with arguments for the setup function will execute that function and return a specialized nimbleFunction.   The \code{run} and other methods can be called using \code{$} like in other R classes, e.g. \code{nf$run()}. The methods can use objects that were created in or passed to the \code{setup} function.
 
@@ -47,7 +48,7 @@ If no \code{setup} function is provided, then \code{nimbleFunction} returns a fu
 
 If one wants a generator but does not need any setup arguments or code, \code{setup = TRUE} can be used.
 
-See the NIMBLE \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} for examples.
+See the NIMBLE \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} for examples.
 
 For more information about the \code{contains} argument, see the section on nimbleFunctionLists.
 }

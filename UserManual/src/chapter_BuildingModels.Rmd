@@ -10,7 +10,7 @@ require(nimble)
 read_chunk(file.path('chunks', 'usingBugsModels_chunks.R'))  # one can put code chunks here if one wants
 ``` 
 
-# Building and using models {#cha:building-models}
+# Building and using models {#cha-building-models}
 
 This chapter explains how to build and manipulate model objects
 starting from BUGS code.
@@ -20,7 +20,7 @@ starting from BUGS code.
 
 NIMBLE provides two functions for creating model objects:
 `nimbleModel` and `readBUGSmodel`. The first, `nimbleModel`,
-is more general and was illustrated in Chapter \@ref(cha:lightning-intro). The
+is more general and was illustrated in Chapter \@ref(cha-lightning-intro). The
 second, `readBUGSmodel` provides compatibility with BUGS file
 formats for models, variables, data, and initial values for MCMC.  
 
@@ -52,7 +52,7 @@ NIMBLE makes a distinction between data and constants:
   - *Data* is a label for the role a node plays in the model.
   Nodes marked as data will by default be protected from any functions
   that would simulate over their values (see `simulate` in Chapter
-  \@ref(cha:using-models)), but it is possible to over-ride
+  \@ref(cha-using-models)), but it is possible to over-ride
   that default or to change their values by direct assignment.  This
   allows an algorithm to be applied to many data sets in the same
   model without re-creating the model each time.  It also allows
@@ -74,7 +74,7 @@ which case NIMBLE handles values for stochastic nodes as data and
 everything else as constants.
 
 Values for nodes that appear only on the right-hand side of BUGS
-declarations (e.g., covariates/predictors) can be provided as constants or as data or initial values. There is no real difference between providing as data or initial values and the values can be added after building a model via `setInits` or `setData`. 
+declarations (e.g., covariates/predictors) can be provided as constants or as data or initial values. There is no real difference between providing as data or initial values and the values can be added after building a model via `setInits` or `setData`. However if provided as data, calls to `setInits` will not overwrite those values (though direct assignment of values will overwrite those values). 
 
 #### Providing (or changing) data and initial values for an existing model
 
@@ -85,7 +85,7 @@ example, if `pumpData` is a named list of data values (as above),
 then `pump$setData(pumpData)` sets the named variables to the
 values in the list.
 
-`setData` does two things: it sets the values of the data nodes,
+`setData` does two things: it sets the values of the (stochastic) data nodes,
 and it flags those nodes as containing data.  nimbleFunction
 programmers can then use that information to control whether an
 algorithm should over-write data or not.  For example, NIMBLE's
@@ -93,6 +93,13 @@ algorithm should over-write data or not.  For example, NIMBLE's
 can be told to do so.  Values of data variables can be replaced, and
 the indication of which nodes should be treated as data can be reset
 by using the `resetData` method, e.g. `pump$resetData()`.
+
+Data nodes cannot be deterministic, and using `setData` on
+deterministic nodes (or passing values for deterministic nodes
+via the `data` argument to `nimbleModel`) will not flag those
+nodes as containing data. It will set the values of those nodes,
+but that will presumably be overwritten as soon as the nodes
+are deterministically calculated.
 
 To change data values without any modification of which nodes are
 flagged as containing data, simply use R's usual assignment syntax
@@ -298,7 +305,7 @@ it helps define the model.
 
 NIMBLE models are objects that can be modified and manipulated from R.
 In this section we introduce some basic ways to use a model object.
-Chapter \@ref(cha:using-models) covers more topics for writing
+Chapter \@ref(cha-using-models) covers more topics for writing
 algorithms that use models.
 
 

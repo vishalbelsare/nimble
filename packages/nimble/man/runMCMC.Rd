@@ -17,6 +17,8 @@ runMCMC(
   samples = TRUE,
   samplesAsCodaMCMC = FALSE,
   summary = FALSE,
+  derivedQuantities = (mcmc$getNumDerived() > 0) &&
+    getNimbleOption("MCMCreturnDerivedQuantities"),
   WAIC = FALSE,
   perChainWAIC = FALSE
 )
@@ -36,7 +38,7 @@ runMCMC(
 
 \item{inits}{Optional argument to specify initial values for each chain.  See details.}
 
-\item{setSeed}{Logical or numeric argument.  If a single numeric value is provided, R's random number seed will be set to this value at the onset of each MCMC chain.  If a numeric vector of length \code{nchains} is provided, then each element of this vector is provided as R's random number seed at the onset of the corresponding MCMC chain.  Otherwise, in the case of a logical value, if \code{TRUE}, then R's random number seed for the ith chain is set to be \code{i}, at the onset of each MCMC chain.  Note that specifying the argument \code{setSeed = 0} does not prevent setting the RNG seed, but rather sets the random number generation seed to \code{0} at the beginning of each MCMC chain.  Default value is \code{FALSE}.}
+\item{setSeed}{Logical or numeric argument.  If a numeric vector of length \code{nchains} is provided, then each element of this vector is provided as R's random number seed at the onset of the corresponding MCMC chain.  Otherwise, in the case of a logical value, if \code{TRUE}, then R's random number seed for the ith chain is set to be \code{i}, at the onset of each MCMC chain, and if \code{FALSE}, the random number seed is never set or modified.  The case of providing a single numeric value for this argument is not supported, except in the case when \code{nchains = 1}.  If the same starting seed is desired for each chain, use \code{setSeed = rep(seed, nchains)}.  Default value is \code{FALSE}.}
 
 \item{progressBar}{Logical argument.  If \code{TRUE}, an MCMC progress bar is displayed during execution of each MCMC chain.  Default value is defined by the nimble package option MCMCprogressBar.}
 
@@ -46,9 +48,11 @@ runMCMC(
 
 \item{summary}{Logical argument.  When \code{TRUE}, summary statistics for the posterior samples of each parameter are also returned, for each MCMC chain.  This may be returned in addition to the posterior samples themselves.  Default value is \code{FALSE}.  See details.}
 
+\item{derivedQuantities}{Logical argument.  When \code{TRUE}, a list containing the derivedQuantity results will be returned.  This list has length equal to the number of derived quantity functions, and each element is the results matrix corresponding to one derived quantity function.  In the case of multiple MCMC chains, a list (of length nchains) is returned consisting of one such list for each MCMC chain.}
+
 \item{WAIC}{Logical argument.  When \code{TRUE}, the WAIC (Watanabe, 2010) of the model is calculated and returned.  Note that in order for the WAIC to be calculated, the \code{mcmc} object must have also been created with the argument `enableWAIC = TRUE`.  If multiple chains are run, then a single WAIC value is calculated using the posterior samples from all chains.  Default value is \code{FALSE}.  See \code{help(waic)}.}
 
-\item{perChainWAIC}{Logical argument. When \code{TRUE} and multiple chains are run, the WAIC for each chain is returned as a means of helping assess the stability of the WAIC estimate. Default value is \code{FALSE}, corresponding to a single WAIC estimate based on all of the chains.}
+\item{perChainWAIC}{Logical argument. When \code{TRUE} and multiple chains are run, the WAIC for each chain is returned as a means of helping assess the stability of the WAIC estimate. Default value is \code{FALSE}.}
 }
 \value{
 A list is returned with named elements depending on the arguments passed to \code{nimbleMCMC}, unless this list contains only a single element, in which case only that element is returned.  These elements may include \code{samples}, \code{summary}, and \code{WAIC}, and when the MCMC is monitoring a second set of nodes using \code{monitors2}, also \code{samples2}.  When \code{nchains = 1}, posterior samples are returned as a single matrix, and summary statistics as a single matrix.  When \code{nchains > 1}, posterior samples are returned as a list of matrices, one matrix for each chain, and summary statistics are returned as a list containing \code{nchains+1} matrices: one matrix corresponding to each chain, and the final element providing a summary of all chains, combined.  If \code{samplesAsCodaMCMC} is \code{TRUE}, then posterior samples are provided as \code{coda} \code{mcmc} and \code{mcmc.list} objects.  When \code{WAIC} is \code{TRUE}, a WAIC summary object is returned.

@@ -9,29 +9,31 @@
 require(nimble)
 ``` 
 
-# Bayesian nonparametric models {#cha:bnp}
+# Bayesian nonparametric models {#cha-bnp}
 
 ## Bayesian nonparametric mixture models {#sec:bnpmixtures}
  
-NIMBLE provides support  for Bayesian nonparametric (BNP) mixture modeling.  The current implementation provides support for hierarchical specifications involving Dirichlet process (DP) mixtures [@ferguson_73;@ferguson_74;@lo_84;@escobar_94;@escobar_west_95].   More specifically, a DP mixture model takes the form
+NIMBLE provides support  for Bayesian nonparametric (BNP) mixture modeling.  The current implementation provides support for hierarchical specifications involving Dirichlet process (DP) mixtures [@ferguson_73;@ferguson_74;@lo_84;@escobar_94;@escobar_west_95]. These allow one to avoid specifying a particular parametric distribution for a given node (parameter) in a model. Instead one can use a DP mixture as a much more general, nonparametric distribution. For example, a normal distribution for a random effect could be replaced by a DP mixture of normal distributions, with the number of components of the mixture being determined from the data and not fixed in advance.
+
+We'll first introduce the general, technical definition of a DP mixture model before describing the Chinese Restaurant Process representation, which may be more interpretable for many readers. More specifically, a DP mixture model for a random variable $y_i$ takes the form
 
 $$y_i \mid G \overset{iid}{\sim} \int h(y_i \mid \theta) G(d\theta),$$
 $$G \mid \alpha, G_0 \sim  DP(\alpha, G_0),$$
 
-where $h(\cdot \mid \theta)$ is a suitable kernel with parameter $\theta$,  and  $\alpha$  and $G_0$ are the concentration and  baseline distribution parameters of the DP, respectively. DP mixture models can be written with different levels of hierarchy, all being equivalent to the model above.
+where $h(\cdot \mid \theta)$ is a suitable kernel (i.e., probability density/mass function) with parameter $\theta$,  and  $\alpha$  and $G_0$ are the concentration and  baseline distribution parameters of the DP, respectively. DP mixture models can be written with different levels of hierarchy, all being equivalent to the model above. While "y" would often be used as notation for a data value, it is used generically here, noting that often DP mixtures are used for random effects rather than directly for observations.
 
-When the random measure $G$ is integrated out from the model, the DP mixture model can be written using  latent or membership variables, $z_i$,  following a Chinese Restaurant Process (CRP) distribution [@blackwell_mcqueen_73], discussed in Section \@ref(sec:crp).  The model takes the form 
+When the random distribution (also referred to as a random 'measure') $G$ is integrated out from the model, the DP mixture model can be written using  latent or membership variables, $z_i$,  following a Chinese Restaurant Process (CRP) distribution [@blackwell_mcqueen_73], discussed in Section \@ref(sec:crp).  The model takes the form 
 
 $$y_i \mid \tilde{\boldsymbol{\theta}}, z_i \overset{ind}{\sim} h(\cdot \mid \tilde{\theta}_{z_i}),$$
 $$\boldsymbol{z}\mid \alpha \sim \mbox{CRP}(\alpha),\hspace{0.5cm}  \tilde{\theta}_j \overset{iid}{\sim}G_0,$$
-where $\mbox{CRP}(\alpha)$ denotes the CRP  distribution with concentration parameter $\alpha$.
+where $\mbox{CRP}(\alpha)$ denotes the CRP  distribution with concentration parameter $\alpha$. Put in perhaps more intuitive terms, $z_i$ says which cluster/group the $i$th unit is in, and the parameter $\tilde{\theta}_j$ for group $j$ is distributed according to the $G_0$ baseline distribution. The parameter $\alpha$ controls how dispersed the clustering is, described more in the next section.
 
-If a stick-breaking representation [@sethuraman_94], discussed in section \@ref(sec:sb), is  assumed for the random measure $G$, then the model takes the form
+If a stick-breaking representation [@sethuraman_94], discussed in section \@ref(sec:sb), is  assumed for the random distribution (measure) $G$, then the model takes the form
 
 $$y_i \mid {\boldsymbol{\theta}}^{\star}, \boldsymbol{v} \overset{ind}{\sim} \sum_{l=1}^{\infty}\left\{ v_l\prod_{m<l}(1-v_m)\right\} h(\cdot \mid {\theta}_l^{\star}),$$
 $$v_l \mid \alpha \overset{iid}{\sim} Beta(1, \alpha),\hspace{0.5cm}  {\theta}_l^{\star} \overset{iid}{\sim}G_0.$$
 
-\noindent More general representations of the random measure can be specify by considering $v_l \mid \nu_l, \alpha_l \overset{ind}{\sim} Beta(\nu_l, \alpha_l)$. Finite dimensional approximations can be obtained by truncating the infinite sum to have $L$ components. 
+\noindent More general representations of the random distribution can be specify by considering $v_l \mid \nu_l, \alpha_l \overset{ind}{\sim} Beta(\nu_l, \alpha_l)$. Finite dimensional approximations can be obtained by truncating the infinite sum to have $L$ components. 
 
 Different representations of  DP mixtures lead to different computational algorithms. NIMBLE supports sampling algorithms based on the CRP representation, as well as on the stick-breaking representation.  NIMBLE includes definitions of structures required to implement the CRP and stick-breaking distributions, and  the associated MCMC algorithms.
 
@@ -79,7 +81,7 @@ Note that the probability of creating a new cluster is proportional to $\alpha$:
 
 The following example illustrates how to use NIMBLE to perform single density estimation for real-valued data, under a BNP approach, using the `dCRP` distribution. (Note that the BNP approach is also often used to perform density estimation on random effects.) The model is given by  
 
-$$ y_i \mid \tilde{\boldsymbol{\theta}}, \tilde{\boldsymbol{\sigma}}^2, z_i \overset{ind}{\sim} N(\tilde{\theta}_{z_i}, \tilde{\sigma}^2_{z_i},)\hspace{0.5cm} i = 1, \ldots, N, $$
+$$ y_i \mid \tilde{\boldsymbol{\theta}}, \tilde{\boldsymbol{\sigma}}^2, z_i \overset{ind}{\sim} N(\tilde{\theta}_{z_i}, \tilde{\sigma}^2_{z_i}), \hspace{0.5cm} i = 1, \ldots, N, $$
 $$ \boldsymbol{z} \sim \mbox{CRP}(\alpha), \hspace{0.5cm} \alpha \sim \mbox{Gamma}(1, 1), $$
 $$ \tilde{\theta}_j \overset{iid}{\sim} N(0, 100),  \hspace{0.5cm}\tilde{\sigma}^2_j \overset{iid}{\sim}\mbox{InvGamma}(1, 1),  \hspace{0.2cm} j=1, \ldots, M. $$
 
@@ -105,21 +107,21 @@ inits <- list(thetatilde = rnorm(constants$M, 0, 10),
 model <- nimbleModel(code, constants, data, inits)
 ```
 
-The model can be fitted through  MCMC sampling. NIMBLE will assign a specialized sampler to update `z` and `alpha`. See Chapter  \@ref(cha:mcmc) for information about NIMBLE's MCMC engine, and Section \@ref(sec:mcmcdcrp) for details on  MCMC sampling of the CRP. 
+The model can be fitted through  MCMC sampling. NIMBLE will assign a specialized sampler to update `z` and `alpha`. See Chapter  \@ref(cha-mcmc) for information about NIMBLE's MCMC engine, and Section \@ref(sec:mcmcdcrp) for details on  MCMC sampling of the CRP. 
 
 One of the advantages of BNP mixture models is that the number of clusters is treated as random. Therefore, in MCMC sampling, the number of cluster parameters varies with the iteration. Since NIMBLE does not currently allow dynamic length allocation, the number of unique cluster parameters, $N^{\star}$, has to be fixed. One safe option is to set this number to $N$, but this is inefficient, both in terms of computation and in terms of storage, because in practice it is often that $N^{\star} < N$. In addition, configuring and building the MCMC can be slow (and use a lot of memory) for large $N$. In an effort to mitigate these inefficiencies, we allow the user to set $N^{\star} = M$, with $M<N$, as seen in the example above.  However, if this number is too small and is exceeded in any iteration a warning is issued.
 
 ### Extensions {#sec:extensionscrp}
 
-The BNP functionality in NIMBLE was extended in version 0.10.0 to more general models. These extensions enable users, for instance, to use a DP or DPM prior for the distribution of the random effects in a generalized linear mixed effects model with mutiple measurements over time or multiple trials per participant. 
+The BNP functionality in NIMBLE was extended in version 0.10.0 to more general models. These extensions enable users, for instance, to use a DP or DPM prior for the distribution of the random effects in a generalized linear mixed effects model with multiple measurements over time or multiple trials per participant. 
 
 The following example illustrates how to use NIMBLE in a random effects model with repeated measurements per subject using a DP prior for the distribution of the subject's random effects. The model is given by
 
-$$ y_{i,j} \mid \tilde{\boldsymbol{\theta}}, z_i, \sigma^2 \ {\sim}\ N(\tilde{\boldsymbol{\theta}}_{z_i}, {\sigma}^2,)\hspace{0.5cm} i = 1, \ldots, N,\hspace{0.5cm} j = 1, \ldots, J, $$
+$$ y_{i,j} \mid \tilde{\boldsymbol{\theta}}, z_i, \sigma^2 \ {\sim}\ N(\tilde{\boldsymbol{\theta}}_{z_i}, {\sigma}^2), \hspace{0.5cm} i = 1, \ldots, N,\hspace{0.5cm} j = 1, \ldots, J, $$
 
 $$ \boldsymbol{z} \sim \mbox{CRP}(\alpha), \hspace{0.5cm} \alpha \sim \mbox{Gamma}(1, 1), $$
 
-$$ \tilde{\theta}_m \overset{iid}{\sim} N(0, 100),  \hspace{0.2cm} m=1, \ldots, M, \hspace{0.5cm} {\sigma}^2 \sim InvGamma(1, 1). $$
+$$ \tilde{\theta}_m \overset{iid}{\sim} N(0, 100),  \hspace{0.2cm} m=1, \ldots, M, \hspace{0.5cm} {\sigma}^2 \sim \mbox{InvGamma}(1, 1). $$
 
 The corresponding NIMBLE code is
 
@@ -149,9 +151,9 @@ inits <- list(thetatilde = rnorm(constants$M, 0, 10),
 modelRandEff <- nimbleModel(code, constants, data, inits)
 ```
 
-Alternatively, each subject could have a vector of parameters being clustered. For example in the model above one could instead specify a vector of means, such as `thetaTilde[z[i], j]`, instead of a single mean. 
+Alternatively, each subject could have a vector of parameters being clustered. For example in the model above one could instead specify a vector of means, such as `thetaTilde[z[i], j]`, instead of a single mean. This allows group-specific parameters to also vary across the repeated mesasurements.
 
-As before, the model can be fitted through  MCMC sampling. NIMBLE will assign a specialized sampler to update `z` and `alpha`. See Chapter  \@ref(cha:mcmc) for information about NIMBLE's MCMC engine, and Section \@ref(sec:mcmcdcrp) for details on  MCMC sampling of the CRP.
+As before, the model can be fitted through  MCMC sampling. NIMBLE will assign a specialized sampler to update `z` and `alpha`. See Chapter  \@ref(cha-mcmc) for information about NIMBLE's MCMC engine, and Section \@ref(sec:mcmcdcrp) for details on  MCMC sampling of the CRP.
 
 ## Stick-breaking model {#sec:sb}
 
@@ -189,7 +191,8 @@ In order to complete the definition of the weights in the stick-breaking represe
 Here we illustrate how to use NIMBLE for the example described in section \@ref(sec:excrp), but considering a stick-breaking representation for $G$. The model  is given by
 
 $$ y_i \mid \boldsymbol{\theta}^{\star}, {\boldsymbol{\sigma}^{\star}}^2, z_i \overset{ind}{\sim} N({{\theta}^{\star}}_{z_i}, {{\sigma}^2}^{\star}_{z_i}),\hspace{0.5cm}  i = 1, \ldots, N, $$
-$$ \boldsymbol{z} \sim Discrete(\boldsymbol{w}), \hspace{0.5cm} v_l\overset{iid}{\sim} Beta(1, \alpha), \hspace{0.2cm}l=1, \ldots, L-1, $$
+$$ z_i \sim \mbox{Categorical}(\boldsymbol{w}),\hspace{0.5cm}  i = 1, \ldots, N, $$
+$$v_l\overset{iid}{\sim} \mbox{Beta}(1, \alpha), \hspace{0.2cm}l=1, \ldots, L-1, $$
 $$ \alpha \sim \mbox{Gamma}(1, 1),$$
 $${\theta}^{\star}_l \overset{iid}{\sim} N(0, 100),  \hspace{0.5cm}{{\sigma}^2}^{\star}_l  \overset{iid}{\sim}\mbox{InvGamma}(1, 1),  \hspace{0.2cm} l=1, \ldots, L.$$
 
@@ -223,7 +226,7 @@ inits <- list(thetastar = rnorm(constants$L, 0, 100),
 modelSB <- nimbleModel(code, constants, data, inits)
 ```
 
-The resulting model may be carried through to MCMC sampling. NIMBLE will assign a specialized sampler to update `v`. See Chapter  \@ref(cha:mcmc) for information about NIMBLE's MCMC engine, and Section \@ref(sec:mcmcsb) for details on  MCMC sampling of the stick-breaking weights. 
+The resulting model may be carried through to MCMC sampling. NIMBLE will assign a specialized sampler to update `v`. See Chapter  \@ref(cha-mcmc) for information about NIMBLE's MCMC engine, and Section \@ref(sec:mcmcsb) for details on  MCMC sampling of the stick-breaking weights. 
 
 
 ## MCMC sampling of BNP models
@@ -249,7 +252,9 @@ Note that both samplers are specialized versions that operate on a vector having
 ```{r, child = 'tables/BNPconjugacyTable2.md'}
 ```
 
-Additionally, a specialized sampler is assigned to the `conc` hyper parameter when a gamma hyper prior is assigned, see section 6 in @escobar_west_95 for more details. Otherwise, a random walk Metropolis-Hastings sampler is assigned.
+To reduce computation and improve mixing, we only sample the parameters of the clusters (e.g., $\tilde{\theta}_j$ in \@ref(sec:excrp) when the associated cluster is occupied, using the `CRP_cluster_wrapper` sampler, which wraps around an underlying actual sampler. In addition, this approach requires that any sampler assigned to parameters of the base measure, $G_0$, (i.e., unknown parameters in the prior for $\tilde{\theta}_j$) ignore cluster parameters associated with clusters that are not occupied, since their current values are meaningless. We assign a special slice sampler that determines the occupied clusters in any given iteration, called `slice_CRP_base_param`. Note that if you choose to use a different sampler for the base measure parameters, you should also avoid using the `CRP_cluster_wrapper` sampler.
+
+Finally, a specialized sampler is assigned to the `conc` hyper parameter when a gamma hyper prior is assigned, see section 6 in @escobar_west_95 for more details. Otherwise, a random walk Metropolis-Hastings sampler is assigned.
 
 #### Initial values
 
@@ -257,7 +262,7 @@ Valid initial values should be provided for all elements of the process specifie
 
 #### Sampling the random measure
 
-In  BNP models, it is oftenly of interest to make inference about the unknown measure $G$. NIMBLE provides the `getSamplesDPmeasure` sampler to generate posterior samples of the random measure $G$ when a CRP structure is involved in the model. 
+In  BNP models, it is often of interest to make inference about the unknown measure $G$. NIMBLE provides the `getSamplesDPmeasure` sampler to generate posterior samples of the random measure $G$ when a CRP structure is involved in the model. 
 
 The `getSamplesDPmeasure` function has two arguments: `MCMC` and `epsilon`.
 

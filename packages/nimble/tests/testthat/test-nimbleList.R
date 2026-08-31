@@ -15,8 +15,6 @@ nimbleVerboseSetting <- nimbleOptions('verbose')
 nimbleOptions(verbose = FALSE)
 
 
-context('Testing nimbleLists')
-
 ########
 ## Test of creating new nimbleList in run code and specifying initial values for that list
 ## Here, the nlDef is created in the global environment, outside of setup code
@@ -1146,7 +1144,6 @@ test_that("nimbleList test 25: return object (from C++) is nimbleList", {
 ########
 ## Test #2 for eigen() function.  Use eigen() to specify a nl element.
 ########
-
 test_that("nimbleList test 26: return object (from C++) is nimbleList", {
     nlTestFunc26 <- nimbleFunction(
         setup = function(){
@@ -1312,5 +1309,117 @@ test_that("nimSvd Model Test 1", {
     expect_identical(Rmodel2$calculate(), Cmodel2$calculate())
 })
 
+test_that("nimbleList test use of [[", {
+    testListDef1 <- nimbleList(nlScalar = double(0), nlVector = double(1), nlMatrix = double(2))
+    temporarilyAssignInGlobalEnv(testListDef1)
+    
+    nlTestFunc1 <- nimbleFunction(
+        setup = function(){
+            doubleMatrix <- diag(1)
+        },
+        run = function(){
+            doubleScalar <- 1
+            doubleVector <- numeric(2, 1)
+            newList1 <- testListDef1$new(nlVector = doubleVector, nlMatrix = doubleMatrix)
+            newList1[['nlScalar']] <- doubleScalar
+            returnType(testListDef1())
+            return(newList1)
+        }
+    )
+    
+    testInst <- nlTestFunc1()
+    RnimbleList <- testInst$run()
+    CtestInst <- compileNimble(testInst, control = list(debug =  F))
+    CnimbleList <- CtestInst$run()
+
+    ## test for correct values of R nimbleList
+    expect_identical(RnimbleList$nlScalar, 1)
+    expect_identical(RnimbleList$nlVector, c(1, 1))
+    expect_identical(RnimbleList$nlMatrix, diag(1))
+    ## test for identical values of R and C nimbleLists
+    expect_identical(RnimbleList$nlScalar, CnimbleList$nlScalar)
+    expect_identical(RnimbleList$nlVector, CnimbleList$nlVector)
+    expect_identical(RnimbleList$nlMatrix, CnimbleList$nlMatrix)
+    expect_identical(nimble:::is.nl(RnimbleList), TRUE)
+    expect_identical(is.nl(CnimbleList), TRUE)
+})
+
+test_that("Assignment of list object to list object works (Issue 1246) a", {
+  nl <- nimbleList(A = double(1))
+  temporarilyAssignInGlobalEnv(nl)
+
+  foo <- nimbleFunction(
+    setup <- function(A) {
+      my_nl <- nl$new()
+      my_nl$A <- A
+    },
+    run = function() {
+      my_nl$A <<- my_nl$A[1:3]
+      return(my_nl$A)
+      returnType(double(1))
+    }
+  )
+
+  foo1 <- foo(as.numeric(1:10))
+  cfoo <- compileNimble(foo1)
+  expect_equal(cfoo$run(), 1:3)
+})
+
+test_that("Assignment of list object to list object works (Issue 1246) b", {
+  nl <- nimbleList(A = double(1))
+  temporarilyAssignInGlobalEnv(nl)
+
+  foo <- nimbleFunction(
+    setup <- function(A) {
+      my_nl <- nl$new()
+      my_nl$A <- A
+      my_nl2 <- my_nl
+    },
+    run = function() {
+      my_nl2$A <<- my_nl$A[1:3]
+      return(my_nl$A)
+      returnType(double(1))
+    }
+  )
+
+  foo1 <- foo(as.numeric(1:10))
+  cfoo <- compileNimble(foo1)
+  expect_equal(cfoo$run(), 1:3)
+})
+
+test_that("Invalids names of nimbleList elements", {
+    expect_silent(nL <- nimbleList(x = integer(0), Y = double(2), name = 'foo'))
+    expect_error(nimbleList(x = integer(0), Y = double(2), name = logical(0)),
+                 "cannot be named")
+    nimbleListTypes <- list(nimbleType(name = 'predefined', type = 'integer', dim = 0),
+                            nimbleType(name = 'Y', type = 'double', dim = 2))
+    expect_error(nimbleList(nimbleListTypes), "cannot be named")
+})
+
+test_that("Printing list information", {
+    mynf <- nimbleFunction(
+    setup = function() {
+        myList <- nimbleList(x = double())
+        myList2 <- nimbleList(x = double(1))
+    },
+    run = function() {
+        ll <- myList$new()
+        ll2 <- myList2$new()
+        ll$x <- 2
+        ll2$x <- c(1, 3, 5)
+        nimCat("x: ", ll$x, "\n")
+        nimCat("x2: ", ll2$x[2], "\n")
+    })
+    rmynf <- mynf()
+    cmynf <- compileNimble(rmynf)
+    expect_output(cmynf$run(), "x: 2")
+    expect_output(cmynf$run(), "x2: 3")
+})
+
+
+
 options(warn = RwarnLevel)
 nimbleOptions(verbose = nimbleVerboseSetting)
+
+
+

@@ -1,7 +1,6 @@
 ## File for testing distributions provided by NIMBLE
 
 source(system.file(file.path('tests', 'testthat', 'test_utils.R'), package = 'nimble'))
-context('Testing NIMBLE distributions')
 
 RwarnLevel <- options('warn')$warn
 options(warn = 1)
@@ -836,7 +835,9 @@ test_that("recycling behavior from R and within nimbleFunctions for non-R-native
     out <- cf(x[1:3], param) 
     expect_identical(out, c(d, p, q), info = 'dinvgamma nf')
 })
-    
+
+
+   
    
 sink(NULL)
 

@@ -68,7 +68,7 @@ callsFromExternalUnaries <- as.character(unlist(lapply(eigProxyTranslateExternal
 
 eigenizeCalls <- c( ## component-wise unarys valid for either Eigen array or matrix
     makeCallList(c('abs','square','sqrt','(','t'), 'eigenize_cWiseUnaryEither'),
-    makeCallList('pow', 'eigenize_cWiseByScalarArray'),
+    makeCallList(c('pow'), 'eigenize_cWiseByScalarArray'),
     makeCallList(c('asRow', 'asCol'), 'eigenize_asRowOrCol'),
     ## component-wise unarys valid only for only Eigen array
     makeCallList(c('exp','log','cube','cwiseInverse','sin','cos','tan','asin','acos'), 'eigenize_cWiseUnaryArray'), 
@@ -91,6 +91,7 @@ eigenizeCalls <- c( ## component-wise unarys valid for either Eigen array or mat
     ## matrix ops
     makeCallList(matrixSolveOperators, 'eigenize_matrixOps'),
     makeCallList('bessel_k', 'eigenize_recyclingRuleFunction'),
+    makeCallList('pow_int', 'eigenize_cWiseByScalarArray'), #'eigenize_recyclingRuleFunction'),
     makeCallList(scalar_distribution_dFuns, 'eigenize_recyclingRuleFunction'),
     makeCallList(scalar_distribution_pFuns, 'eigenize_recyclingRuleFunction'),
     makeCallList(scalar_distribution_qFuns, 'eigenize_recyclingRuleFunction'),
@@ -109,7 +110,7 @@ eigenizeCalls <- c( ## component-wise unarys valid for either Eigen array or mat
 )
 
 eigenizeCallsBeforeRecursing <- c( ## These cannot be calls that trigger aliasRisk. getParam always triggers an intermediate so it should never need handling here
-    makeCallList(c('size','nimArr_dmnorm_chol', 'nimArr_dmvt_chol', 'nimArr_dlkj_corr_cholesky', 'nimArr_dwish_chol', 'nimArr_dinvwish_chol', 'nimArr_dcar_normal', 'nimArr_dcar_proper', 'nimArr_ddirch','calculate','calculateDiff','getLogProb', 'getParam', 'getBound', 'getNodeFunctionIndexedInfo', 'concatenateTemp', 'MAKE_FIXED_VECTOR', 'hardCodedVectorInitializer'), 'eigenize_doNotRecurse'),
+    makeCallList(c('size','nimArr_dmnorm_chol', 'nimArr_dmnorm_inv_ld', 'nimArr_dmvt_chol', 'nimArr_dlkj_corr_cholesky', 'nimArr_dwish_chol', 'nimArr_dinvwish_chol', 'nimArr_dcar_normal', 'nimArr_dcar_proper', 'nimArr_ddirch','calculate','calculateDiff','getLogProb', 'getParam', 'getBound', 'getNodeFunctionIndexedInfo', 'concatenateTemp', 'MAKE_FIXED_VECTOR', 'hardCodedVectorInitializer'), 'eigenize_doNotRecurse'),
     list(coeffSetter = 'eigenize_coeffSetter',
          nfVar = 'eigenize_nfVar',
          chainedCall = 'eigenize_chainedCall'),
@@ -611,13 +612,17 @@ eigenize_cWiseBinaryArray <- function(code, symTab, typeEnv, workEnv) {
 eigenize_cWiseByScalarArray <- function(code, symTab, typeEnv, workEnv) {
     if(code$nDim == 0) return(NULL)
     if(!is.numeric(code$args[[2]]))
-        if(code$args[[2]]$nDim != 0) stop(exprClassProcessingErrorMsg(code, 'the second argument to pow must be a scalar.'), call. = FALSE)
-    newName <- eigenizeTranslate[[code$name]]
-    if(is.null(newName)) stop(exprClassProcessingErrorMsg(code, 'Missing eigenizeTranslate entry.'), call. = FALSE)
-    code$name <- newName
-    code$eigMatrix <- FALSE
-    if(code$args[[1]]$eigMatrix) eigenizeArrayize(code$args[[1]])
-    promoteTypes(code)
+      if(code$args[[2]]$nDim != 0) stop(exprClassProcessingErrorMsg(code, 'the second argument to pow or pow_int must be a scalar.'), call. = FALSE)
+    if(code$name == 'pow') {
+      newName <- eigenizeTranslate[[code$name]]
+      if(is.null(newName)) stop(exprClassProcessingErrorMsg(code, 'Missing eigenizeTranslate entry.'), call. = FALSE)
+      code$name <- newName
+      code$eigMatrix <- FALSE
+      if(code$args[[1]]$eigMatrix) eigenizeArrayize(code$args[[1]])
+      promoteTypes(code)
+    } else { # 'pow_int' case
+      return(eigenize_recyclingRuleFunction(code, symTab, typeEnv, workEnv))
+    }
     invisible(NULL)
 }
 
@@ -841,7 +846,7 @@ eigenizeName <- function(code, symTab, typeEnv, workEnv) {
     
     if(needStrides) {
         newArgs <- list()
-        newArgs[[1]] <- code$name
+       newArgs[[1]] <- as.name(code$name)
         newArgs[[2]] <- code$nDim ## not used but for completeness
         newArgs[[3]] <- quote(0) ## eigenizeNameStrided will insert getOffset(ptr)
         newArgs[[4]] <- code$sizeExprs

@@ -1,6 +1,35 @@
 ###		These functions are used for calculate/sim/getLP for the nodeFunctionVectors
 ###		Can either enter model, nodes or model_nodes
 
+#' NIMBLE language function to break tracking of derivatives
+#'
+#' This function is used in a method of a nimbleFunction that has derivatives enabled.  It returns its value but breaks tracking of derivatives.
+#'
+#' @param x scalar value
+#'
+#' @details
+#' This funcion only works with scalars.
+#'
+#' @export
+ADbreak <- function(x) x
+
+#' Power function for integer-valued exponent
+#'
+#' pow function with exponent required to be integer
+#'
+#' @param a Base
+#' @param b Exponent
+#'
+#' @return a^b
+#'
+#' @details This is required in nimble models and nimbleFunctions if derivatives will be tracked
+#' but tracked only with respect to a, such that b might be any (positive, 0, or negative) integer.
+#' This contrasts with pow(a, b) (equivalent to a^b), which requires b > 0 if derivatives will be
+#' tracked, even if they will only be requested with respect to a.
+#' 
+#' @export
+pow_int <- function(a, b) a^round(b) # b should be integer.  rounding it makes finite-element derivatives 0, as needed.
+
 #' NIMBLE language functions for R-like vector construction
 #'
 #' The functions \code{c}, \code{rep}, \code{seq}, \code{which}, \code{diag}, \code{length}, \code{seq_along}, \code{is.na}, \code{is.nan}, \code{any}, and \code{all} can be used in nimbleFunctions and compiled using \code{compileNimble}.
@@ -23,7 +52,7 @@
 #'
 #' \code{nimRep} is NIMBLE's version of \code{rep}.  It should behave identically to \code{rep}.  There are no NIMBLE versions of \code{rep.int} or \code{rep_len}.
 #'
-#' \code{nimSeq} is NIMBLE's version of \code{seq}.  It behaves like \code{seq} with support for \code{from}, \code{to}, \code{by} and \code{length.out} arguments.  The \code{along.with} argument is not supported.  There are no NIMBLE versions of \code{seq.int}, \code{seq_along} or \code{seq_len}, with the exception that \code{seq_along} can take a nimbleFunctionList as an argument to provide the index range of a for-loop (\href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} Ch. 13). 
+#' \code{nimSeq} is NIMBLE's version of \code{seq}.  It behaves like \code{seq} with support for \code{from}, \code{to}, \code{by} and \code{length.out} arguments.  The \code{along.with} argument is not supported.  There are no NIMBLE versions of \code{seq.int}, \code{seq_along} or \code{seq_len}, with the exception that \code{seq_along} can take a nimbleFunctionList as an argument to provide the index range of a for-loop (\href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} Ch. 13). 
 #'
 #' \code{which} behaves like the R version but without support for \code{arr.ind} or \code{useNames} arguments.
 #'
@@ -77,6 +106,8 @@ nimSeq <- function(from, to, by, length.out) { ## this creates default arguments
 #' Normally a nimbleFunction determines what objects from setup code need to be preserved for run code or other member functions.  \code{setupOutputs} allows explicit declaration for cases when an object created in setup code is not used in member functions.
 #' 
 #' @name setupOutputs
+#'
+#' @usage setupOutputs(...)
 #'
 #' @param ... An arbitrary set of names
 #'
@@ -241,6 +272,8 @@ defaultParamInfo <- function() {
 #'
 #' @param nodeFunctionIndex For internal NIMBLE use only
 #'
+#' @param warn For internal NIMBLE use only
+#'
 #' @export
 #' @details
 #' Standard usage is as a method of a model, in the form \code{model$getParam(node, param)}, but the usage as a simple function with the model as the first argument as above is also allowed.
@@ -254,7 +287,7 @@ defaultParamInfo <- function() {
 #' parameter known to the distribution.  For example, one can request
 #' the scale or rate parameter of a gamma distribution, regardless of
 #' which one was used to declare the node.
-getParam <- function(model, node, param, nodeFunctionIndex) {
+getParam <- function(model, node, param, nodeFunctionIndex, warn = TRUE) {
     if(missing(param)) { ## already converted by keyword conversion
         stop('Missing either the node or the parameter. Please specify both the node and the parameter of interest. This error may also be triggered if this case of getParam (after keyword replacement) has not been updated for R execution with newNodeFunction system')
         ## nodeFunctionIndex would only be used here, when we make this part work
@@ -262,9 +295,10 @@ getParam <- function(model, node, param, nodeFunctionIndex) {
         paramInfo <- node
     } else {
         ## not already converted; this is regular execution
-        if(length(node) != 1) stop(paste0("getParam only works for one node at a time, but ", length(node), " were provided."))
+        if(length(node) != 1) stop("getParam only works for one node at a time, but ", length(node), " were provided.")
         tmp <- model$expandNodeNames(node)
-        if(length(tmp) != 1) stop(paste0("getParam only works for one node at a time, but ", node, " includes multiple nodes."))
+        if(length(tmp) > 1) stop("getParam only works for one node at a time, but ", node, " includes multiple nodes.")
+        if(!length(tmp)) stop("node ", node, " does not exist.")
         ## makeParamInfo, called by nodeFunctionVector, will check on length of param
         ## nodeFunctionIndex should never be used.
         nfv <- nodeFunctionVector(model, node)
@@ -281,7 +315,8 @@ getParam <- function(model, node, param, nodeFunctionIndex) {
     type <- paramInfo$type
     unrolledIndicesMatrixRow <- model$modelDef$declInfo[[declID]]$unrolledIndicesMatrix[ indexingInfo$unrolledIndicesMatrixRows[1], ]
     if(nDim > 2) {
-        warning("Note that getParam is not available for parameters of dimension greater than two, but other calculations with models are unaffected")
+        if(warn)
+            messageIfVerbose("  [Warning] `getParam` is not available for parameters of dimension greater than two, but other calculations with models are unaffected.")
         return(NULL)
     }
     funName <- paste0('getParam_',nDim,'D_',type)
@@ -423,7 +458,6 @@ rCalcDiffNodes <- function(model, nfv){
     return(l_Prob)
 }
 
-
 #' calculate, calculateDiff, simulate, or get the current log probabilities (densities) a set of nodes in a NIMBLE model
 #'
 #' calculate, calculateDiff, simulate, or get the current log probabilities (densities) of one or more nodes of a NIMBLE model and (for calculate and getLogProb) return the sum of their log probabilities (or densities).  Part of R and NIMBLE.
@@ -457,8 +491,6 @@ rCalcDiffNodes <- function(model, nfv){
 #'
 #' simulate returns NULL.
 #' 
-NULL
-
 #' @rdname nodeFunctions
 #' @export
 calculate <- function(model, nodes, nodeFxnVector, nodeFunctionIndex)	
@@ -813,7 +845,7 @@ nimCopy <- function(from, to, nodes = NULL, nodesTo = NULL, row = NA, rowTo = NA
 #'
 #' For internal access to methods of \code{nf}, see \code{\link{nfMethod}}.
 #' 
-#' For more information, see \code{?nimbleFunction} and the NIMBLE \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual}.
+#' For more information, see \code{?nimbleFunction} and the NIMBLE \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual}.
 #'
 #' @return whatever varName is in the nimbleFunction nf.
 #' @examples
@@ -930,6 +962,8 @@ rankSample <- function(weights, size, output, silent = FALSE) {
 #' @details The keyword \code{print} in nimbleFunction run-time code will be automatically turned into \code{nimPrint}.  This is a function that prints its arguments in order using \code{cat} in R, or using \code{std::cout} in C++ code generated by compiling nimbleFunctions.
 #' Non-scalar numeric objects can be included, although their output will be formatted slightly different in uncompiled and compiled nimbleFunctions.
 #'
+#' For numeric values, the number of digits printed is controlled by the system option \code{nimbleOptions('digits')}.
+#'
 #' @aliases print
 #'
 #' @examples
@@ -960,6 +994,8 @@ nimPrint <- function(...) {
 #'
 #' \code{nimCat} is the same as \code{cat}, and the latter is converted to the former when a nimbleFunction is defined.
 #'
+#' For numeric values, the number of digits printed is controlled by the system option \code{nimbleOptions('digits')}.
+#'
 #' @examples
 #' ans <- matrix(1:4, nrow = 2) ## R code, not NIMBLE code
 #' nimCat('Answer is ', ans) ## would work in R or NIMBLE
@@ -989,7 +1025,7 @@ nimCat <- function(...) {
 #' 
 #' When used in a \code{nimbleFunction} (in \code{run} or other member function), \code{numeric}, \code{integer} and \code{logical} are immediately converted to \code{nimNumeric}, \code{nimInteger} and \code{nimLogical}, respectively.  
 #' 
-#' @author Daniel Turek, Chris Paciorek, Perry de Valpine
+#' @author Daniel Turek, Christopher Paciorek, Perry de Valpine
 #' @aliases numeric
 #' @seealso \code{\link{nimMatrix}}, \code{\link{nimArray}}
 #' @export
@@ -1176,34 +1212,106 @@ declare <- function(name, def){
 #' @export
 any_na <- function(x) any(is.na(x))
 
-## Retained for backwards compatibility
-is.na.vec <- function(x) any(is.na(x))
+## Deprecated as of v. 1.1.0
+is.na.vec <- function(x)
+    stop("`is.na.vec` has been removed from NIMBLE; please use `any_na`")
 
 #' @rdname any_na
 #' @export
 any_nan <- function(x) any(is.nan(x))
 
-## Retained for backwards compatibility
-is.nan.vec <- function(x) any(is.nan(x))
+## Deprecated as of v. 1.1.0
+is.nan.vec <- function(x)
+    stop("`is.nan.vec` has been removed from NIMBLE; please use `any_nan`")
 
 #' @export
 nimRound <- round
 
-#' Nimble wrapper around R's builtin \code{\link{optim}}.
+#' General-purpose Optimization
+#'
+#' NIMBLE wrapper around R's builtin \code{\link{optim}}, with flexibility for
+#' additional methods.
 #'
 #' @param par Initial values for the parameters to be optimized over.
-#' @param fn  A function to be minimized (or maximized), with first argument the
-#'            vector of parameters over which minimization is to take place. It
-#'            should return a scalar result.
-#' @param gr  A function to return the gradient for the "BFGS", "CG" and "L-BFGS-B" methods.
+#' @param fn A function to be minimized (or maximized), with first argument the
+#'   vector of parameters over which minimization is to take place. It should
+#'   return a scalar result.
+#' @param gr A function to return the gradient for the "BFGS", "CG" and
+#'   "L-BFGS-B" methods. If not provided, a finite-difference approximation to
+#'   derivatives will be used.
+#' @param he A function to return the Hessian matrix of second derivatives. Used
+#'   (but not required) in "nlminb" or (optionally) user-provided methods.
 #' @param ... IGNORED
-#' @param method The method to be used. See `Details` section of \code{\link{optim}}. One of:
-#'               "Nelder-Mead", "BFGS", "CG", "L-BFGS-B".
-#'               Note that the R methods "SANN", "Brent" are not supported.
+#' @param method The method to be used. See `Details` section of
+#'   \code{\link{optim}}. One of: "Nelder-Mead", "BFGS", "CG", "L-BFGS-B", "nlminb", or "bobyqa". Note that the R methods "SANN", "Brent" are not supported. It is
+#'   also possible to provide a new method; see details.
 #' @param lower Vector or scalar of lower bounds for parameters.
 #' @param upper Vector or scalar of upper bounds for parameters.
-#' @param control A list of control parameters. See \code{Details} section of \code{\link{optim}}.
+#' @param control A list of control parameters. See \code{Details} section of
+#'   \code{\link{optim}}. For code in a nimbleFunction to be compiled, this must
+#'   be an \code{optimControlNimbleList}, which has fields for most elements in
+#'   the control list for R's \code{optim}.
 #' @param hessian Logical. Should a Hessian matrix be returned?
+#'
+#' @details This function for use in nimbleFunctions for compilation by
+#'   \code{compileNimble} provides capabilities similar to R's \code{optim} and
+#'   \code{nlminb}. For the supported methods provided by \code{optim}, a
+#'   compiled nimbleFunction will directly call the C code used by R for these
+#'   methods.
+#'
+#' If \code{optim} appears in a nimbleFunction, it will be converted to
+#' \code{nimOptim}.
+#'
+#' Note that if a gradient function (\code{gr}) is not provided, \code{optim}
+#'   provides a finite difference approximation for use by optimization methods
+#'   that need gradients. nimble's compiled version of \code{nimOptim} does the
+#'   same thing, although results might not be completely identical.
+#'
+#' For \code{method="nlminb"}, a compiled nimbleFunction will run R's
+#' \code{nlminb} directly in R, with \code{fn}, \code{gr} (if provided) and
+#' \code{he} (if provided) that call back into compiled code. For
+#' \code{method="bobyqa"}, a compiled nimbleFunction will run R's
+#' \code{nloptr::bobyqa} directly in R, with \code{fn} that calls back
+#' into compiled code.
+#'
+#' An experimental feature is the capability to provide one's own optimization
+#' method in R and register it for use by \code{nimOptim}. One must write a
+#' function that takes arguments \code{par}, \code{fn}, \code{gr}, \code{he},
+#' \code{lower}, \code{upper}, \code{control}, and \code{hessian}. The function
+#' must return a list with elements \code{par}, \code{value},
+#' \code{convergence}, \code{counts}, \code{evaluations}, \code{message}, and
+#' \code{hessian} (which may be NULL). If \code{hessian=TRUE} but the function
+#' does not return a matrix in the \code{hessian} element of its return list,
+#' \code{nimOptim} will fill in that element using finite differences of the
+#' gradient. In general the function will be a wrapper around the actual
+#' R optimization function.
+#'
+#' The \code{control} list passed from a nimbleFunction to the
+#' optimization function will include a minimum of options, including
+#' \code{abstol}, \code{reltol}, \code{maxit}, and \code{trace}. This means
+#' that the user's R (wrapper) function must map between those minimum options
+#' and the equivalent inputs to the optimization function. Other options
+#' for a specific method may be set within the R (wrapper) function but
+#' cannot be passed from \code{nimOptim}.
+#'
+#'  The elements \code{parscale} and \code{fnscale} in \code{control} are used in
+#' a special way. They are implemented by \code{nimOptim} such that for *any*
+#' the method is expected to do minimization and \code{nimOptim} will arrange
+#' for it to minimize \code{fn(par)/fnscale} in the parameter space
+#' \code{par/parscale}.
+#'
+#' To use the optimizer with \code{nimOptim}, an optimizer \code{fun} must be
+#' registered by \code{nimOptimMethod("method_name", fun)}, and then
+#' "\code{method_name}" can be used as the \code{method} argument to
+#' \code{nimOptim} to use \code{fun}. An optimizer may be found by
+#' \code{nimOptimMethod("method_name")} and may be removed by
+#' \code{nimOptimMethod("method_name", NULL)}.
+#'
+#' Support for \code{method="nlminb"} is provided in this way, and can be
+#' studied as an example via \code{nimOptimMethod("nlminb")}.
+#'
+#' The system for providing one's own optimizer is not considered stable and is
+#' subject to change in future versions.
 #'
 #' @return \code{\link{optimResultNimbleList}}
 #' @seealso \code{\link{optim}}
@@ -1228,19 +1336,82 @@ nimRound <- round
 #' cOptimizer <- compileNimble(optimizer)
 #' cOptimizer(method = 'BFGS', fnscale = -1)
 #' }
-nimOptim <- function(par, fn, gr = "NULL", ..., method = "Nelder-Mead", lower = -Inf, upper = Inf,
+nimOptim <- function(par, fn, gr = "NULL", he = "NULL", ..., method = "Nelder-Mead", lower = -Inf, upper = Inf,
                      control = nimOptimDefaultControl(), hessian = FALSE) {
-    # Tweak parameters.
-    if (identical(gr, "NULL")) gr <- NULL
+    ## Tweak parameters.
+    if(identical(gr, "NULL")) gr <- NULL
+    if(identical(he, "NULL")) he <- NULL
+  ## We don't handle creation of finite difference versions of gr and he here
+  ## as we do in compiled code. That is a compiled/uncompiled behavior discrepancy.
     defaultControl <- nimOptimDefaultControl()
     Rcontrol <- list()
+    ## Only enter non-default values into Rcontrol.
+    ## R's optim will fill in the rest.
+    ## This should match compiled handling of control list
+    ## parameters in NimOptimProblem::solve in nimOptim.cpp.
     for (name in defaultControl$nimbleListDef$types$vars) {
         if (!identical(control[[name]], defaultControl[[name]])) {
             Rcontrol[[name]] <- control[[name]]
         }
     }
-    result <- optim(par, fn, gr = gr, ..., method = method,
-                    lower = lower, upper = upper, control = Rcontrol, hessian = hessian)
+    if(method %in% c("Nelder-Mead", "CG", "BFGS", "L-BFGS-B")) {
+      result <- optim(par, fn, gr = gr, ..., method = method,
+                      lower = lower, upper = upper, control = Rcontrol, hessian = hessian)
+    } else {
+      # NB: Compiled nimOptim applies parscale and fnscale internally,
+      # so they are applied for all optimizers in the same way.
+      # Hence we have to do that here.
+      fnscale <- control$fnscale
+      if(is.null(fnscale) || is.na(fnscale))
+        fnscale <- 1
+      working_parscale <- control$parscale
+      if(is.null(working_parscale) ||
+           ((length(working_parscale)==1) && is.na(working_parscale[1])))
+        working_parscale <- rep(1, length(par))
+      adj_fn <- function(par, ...) fn(par*working_parscale, ...) / fnscale
+      if(is.function(gr))
+        adj_gr <- function(par, ...) working_parscale * gr(par*working_parscale, ...) / fnscale
+      else adj_gr <- NULL
+      if(hessian || is.function(he))
+        working_parscale_mat <- outer(working_parscale, working_parscale)
+      if(is.function(he)) {
+        adj_he <- function(par, ...) working_parscale_mat * he(par*working_parscale, ...) / fnscale
+      }
+      else adj_he <- NULL
+      init_par <- par / working_parscale
+      result <- custom_optim_inner(method, init_par, adj_fn, adj_gr, adj_he,
+                                   lower, upper, control, hessian)
+      hessian_returned <- is.numeric(result$hessian) && length(result$hessian)
+      if(hessian && !hessian_returned)
+        result$hessian <- optimHess(result$par, adj_fn, adj_gr) # ignore ndeps
+      hessian_returned <- is.numeric(result$hessian) && length(result$hessian)
+
+      result$value <- result$value * fnscale
+      result$par <- result$par * working_parscale
+      if(hessian_returned)
+        result$hessian <- fnscale * result$hessian / working_parscale_mat
+      ## Rcontrol$type <- NULL
+      ## optimr_methods <- optimx::ctrldefault(4) # imitated optimx::checkallsolvers
+      ## avail_in_optimr <- suppressWarnings(
+      ##   optimx::checksolver(method, optimr_methods$allmeth, optimr_methods$allpkg)
+      ## )
+      ## if(!is.null(avail_in_optimr)) {
+      ##   resultRaw <- try(optimx::optimr(par, fn, gr = gr, he = he, method = method, lower = lower,
+      ##                                   upper = upper, hessian=hessian))
+      ## } else {
+      ##   optimizer <- nimOptimMethod(method)
+      ##   if(is.null(optimizer)) stop("optimizer ", method, " not found. See help(nimOptimMethod).")
+      ##   resultRaw <- try(optimizer(par, fn, gr = gr, he = he, lower = lower,
+      ##                                   upper = upper, control = Rcontrol, hessian=hessian))
+      ## }
+      ## if(inherits(resultRaw, "try-error")) stop("problem with optimizer ", method)
+
+      ## result <- list()
+      ## for(name in c("par", "value", "convergence", "counts", "message")) {
+      ##   result[[name]] <- resultRaw[[name]]
+      ##   attributes(result[[name]]) <- NULL
+      ## }
+    }
     nimResult <- do.call(optimResultNimbleList$new, result)
     # Tweak result value to exactly match C++ behavior.
     nimResult$counts <- unname(nimResult$counts)
@@ -1253,6 +1424,63 @@ nimOptim <- function(par, fn, gr = "NULL", ..., method = "Nelder-Mead", lower = 
     return(nimResult)
 }
 
+# nimble_custom_optim_ function is called only from C++
+custom_optim <- function(method, par, lower, upper, control,
+                         hessian, use_gr, use_he, extptr, ...) {
+    
+  fnsym <- nimbleUserNamespace$sessionSpecificDll$CALL_NimOptimProblem_fn # getNativeSymbolInfo("CALL_NimOptimProblem_fn")
+  fn <- function(p) eval(call('.Call', fnsym, p, extptr))
+  if(use_gr) {
+    grsym <- nimbleUserNamespace$sessionSpecificDll$CALL_NimOptimProblem_gr # getNativeSymbolInfo("CALL_NimOptimProblem_gr")
+    gr <- function(p) eval(call('.Call', grsym, p, extptr)) 
+  } else gr <- NULL
+  if(use_he) {
+    hesym <- nimbleUserNamespace$sessionSpecificDll$CALL_NimOptimProblem_he # getNativeSymbolInfo("CALL_NimOptimProblem_he")
+    he <- function(p) eval(call('.Call', hesym, p, extptr))
+  } else he <- NULL
+  custom_optim_inner(method, par, fn, gr, he, lower, upper, control, hessian)
+}
+
+custom_optim_inner <- function(method, par, fn, gr, he, lower, upper, control,
+                               hessian) {
+                                        # To do:
+  # uncompiled R execution
+  # the control list here will have been packed up like this from the optimControlNimbleList:
+  # list(parscale = control$parscale, fnscale = control$fnscale, maxit = control$maxit,
+  #      trace = control$trace, abstol = control$abstol, reltol = control$reltol)
+  ## We experimented with giving optimx a priority of call, but we are not doing that for now.
+  ## optimr_methods <- optimx::ctrldefault(4) # imitated optimx::checkallsolvers
+  ## avail_in_optimr <- suppressWarnings(
+  ##   optimx::checksolver(method, optimr_methods$allmeth, optimr_methods$allpkg)
+  ## )
+  ## if(!is.null(avail_in_optimr)) {
+  ##   resultRaw <- try(optimx::optimr(par, fn, gr = gr, he = he, method = method, lower = lower,
+  ##                                   upper = upper, hessian=hessian))
+  ## } else {
+  optimizer <- nimOptimMethod(method)
+  if(is.null(optimizer)) stop("optimizer ", method, " not found. See help(nimOptimMethod).")
+  resultRaw <- try(optimizer(par, fn, gr = gr, he = he, lower = lower,
+                             upper = upper, control = control, hessian=hessian),
+                             silent = TRUE)
+  ##  }
+  result <- list()
+  if(inherits(resultRaw, "try-error")) {
+    # stop("problem with optimizer ", method)
+    result[['par']] = par
+    result[['value']] = NaN
+    result[['convergence']] = 1
+    result[['counts']] = 0
+    result[['message']] = ''
+    result[['hessian']] = matrix(nrow = 0, ncol = 0)
+  } else {
+    for(name in c("par", "value", "convergence", "counts", "message", "hessian")) {
+      result[[name]] <- resultRaw[[name]]
+      attributes(result[[name]]) <- NULL
+    }
+  }
+  result
+}
+
 #' Creates a deafult \code{control} argument for \code{\link{optim}} (just an empty list).
 #'
 #' @return an empty \code{list}.
@@ -1262,13 +1490,128 @@ optimDefaultControl <- function() {
     return(list())
 }
 
-#' Creates a deafult \code{control} argument for \code{\link{nimOptim}}.
+#' Creates a default \code{control} argument for \code{\link{nimOptim}}.
 #'
 #' @return \code{\link{optimControlNimbleList}}
 #' @seealso \code{\link{nimOptim}}, \code{\link{optim}}
 #' @export
 nimOptimDefaultControl <- function() {
-    control <- optimControlNimbleList$new()
-    control$maxit <- NULL  ## The default value depends on method.
-    return(control)
+  control <- optimControlNimbleList$new()
+  control$trace <- 0
+  control$fnscale <- 1
+  control$parscale <- as.numeric(NA) # Must be filled in to length of par
+  control$ndeps <- as.numeric(NA)    # Ditto
+  control$maxit <- as.integer(NA)  ## The default value depends on method.
+  control$abstol = -Inf
+  control$reltol <- sqrt(.Machine$double.eps)
+  control$alpha <- 1.0
+  control$beta <- 0.5
+  control$gamma <- 2.0
+  control$REPORT <- as.integer(NA) # Method dependent and not used in compiled version
+  control$type <- 1
+  control$lmm <- 5
+  control$factr <- 1e7
+  control$pgtol <- 0
+  control$tmax <- 10
+  control$temp <- 10
+  return(control)
 }
+
+#' Integration of One-Dimensional Functions
+#'
+#' NIMBLE wrapper around R's builtin \code{\link{integrate}}. Adaptive quadrature
+#' of functions of one variable over a finite or infinite interval.
+#'
+#' @param f nimbleFunction of one input for which the integral is desired.
+#' See below for details on requirements for how \code{f} must be defined.
+#' @param lower an optional scalar lower bound for the input of the function.
+#' @param upper an optional scalar upper bound for the input of the function.
+#' @param param additional parameter(s) to the function
+#'               that are fixed with respect to the integration. If \code{f}
+#'               takes no additional arguments (beyond the variable of
+#'               integration), this must be provided but need not be used in
+#'               \code{f}. Can be of length one or more.
+#'               parameters.
+#' @param subdivisions the maximum number of subintervals.
+#' @param rel.tol relative accuracy requested.
+#' @param abs.tol absolute accuracy requested.
+#' @param stop.on.error logical. If \code{TRUE} (the default) an error stops the
+#'        function. Otherwise some errors will give a result with the error
+#'        code given in the third element of the result vector.
+#'
+#' @return A vector with three values, the first the estimate of the integral,
+#' the second an estimate of the modulus of the absolute error, and the third
+#' a result code corresponding to the \code{message} returned by \code{integrate}.
+#' The numerical result code can be interpreted as follows:
+#' \itemize{
+#' \item \code{0}: "OK"
+#' \item \code{1}: "maximum number of subdivisions reached"
+#' \item \code{2}: "roundoff error was detected"
+#' \item \code{3}: "extremely bad integrand behaviour"
+#' \item \code{4}: "roundoff error is detected in the extrapolation table"
+#' \item \code{5}: "the integral is probably divergent"
+#' \item \code{6}: "the input is invalid"
+#' }
+#' 
+#' @details
+#' The function \code{f} should take two arguments, the first of type
+#' \code{double(1)}, i.e., vector. \code{f} should be vectorized
+#' in that it should also return a \code{double(1)} object, containing
+#' the result of applying the function to each element of the first
+#' argument. (The result can be calculated using vectorized NIMBLE code or
+#' using a loop.) The second argument is required to also be of type
+#' \code{double(1)}, containing any additional parameter(s) to the function
+#' that are not being integrated over. This argument can be unused in
+#' the function if the function does not need additional parameters.
+#' Note that this must be of type \code{double(1)} even if \code{param}
+#' contains a single element (NIMBLE will manage the lengths behind the
+#' scenes).
+#'
+#' Note that unlike with R's \code{integrate}, additional parameters
+#' must be passed as part of a vector, specified via \code{param},
+#' and cannot be passed as individual named arguments.
+#' 
+#' @seealso \code{\link{integrate}}
+#' @author Christopher Paciorek, Paul van Dam-Bates, Perry de Valpine
+#' @aliases integrate
+#' @export
+#' @examples
+#' integrand <- nimbleFunction(
+#'    run = function(x = double(1), theta = double(1)) {
+#'        return(x*theta[1])   
+#'    returnType(double(1))
+#'  }
+#')
+#'
+#' fun <- nimbleFunction(
+#'    run = function(theta = double(0), lower = double(0), upper = double(0)) {
+#'        param = c(theta, 0)  # cannot be scalar, so pad with zero.
+#'        output = integrate(integrand, lower, upper, param)
+#'        returnType(double(1))
+#'        return(output)
+#'  })
+#'
+#' fun(3.1415927, 0, 1)
+#' \dontrun{
+#' cfun <- compileNimble(fun)
+#' cfun(3.1415927, 0, 1)
+#' }
+#' 
+nimIntegrate <- function(f, lower, upper, param, subdivisions = 100L,
+                         rel.tol = .Machine$double.eps^0.25, abs.tol = .Machine$double.eps^0.25, stop.on.error = TRUE) {
+  # R's integrate has default abs.tol = rel.tol, but nimble has now way to do that kind of chain of defaults
+  # in compiled code.
+  output <- rep(0, 3)
+    messages <- c("OK", "maximum number of subdivisions reached", 
+        "roundoff error was detected", "extremely bad integrand behaviour", 
+        "roundoff error is detected in the extrapolation table", 
+        "the integral is probably divergent", "the input is invalid")
+    result <- integrate( f, lower, upper, param, subdivisions = subdivisions,
+              rel.tol = rel.tol, abs.tol = abs.tol,
+              stop.on.error = stop.on.error)
+    output[1] <- result$value
+    output[2] <- result$abs.error
+    output[3] <- which(result$message == messages) - 1
+    return(output)           
+}
+

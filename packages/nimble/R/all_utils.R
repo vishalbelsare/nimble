@@ -24,6 +24,7 @@ labelFunctionMetaCreator <- function() {
                 nextIndex <<- 1
                 return(invisible(NULL))
             }
+            envName <- gsub("\\.", "_dot_", envName)
             lead <- paste(lead, envName , sep = '_')
             ans <- paste0(lead, nextIndex - 1 + (1:count))
             nextIndex <<- nextIndex + count
@@ -46,6 +47,8 @@ resetLabelFunctionCreators <- function() {
 
 nimbleUniqueID <- labelFunctionCreator("UID")
 nimbleModelID  <- labelFunctionCreator("MID")
+ADinfoLabel <- labelFunctionCreator("nimbleCppADinfo_")
+StridedLabelMaker <- labelFunctionCreator("Strided")
 
 dimOrLength <- function(obj, scalarize = FALSE) {
     if(scalarize) if(length(obj) == 1) return(numeric(0))
@@ -98,7 +101,7 @@ getNimbleFunctionEnvironment <- function() {
 #' @param k				number of rows that modelValues is set to
 #' @author				Clifford Anderson-Bergman
 #' @details
-#' See the \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} or \code{help(modelValuesBaseClass)} for infomation about modelValues objects
+#' See the \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} or \code{help(modelValuesBaseClass)} for infomation about modelValues objects
 #'
 #' @examples
 #' mvConf <- modelValuesConf(vars = c('a', 'b'),
@@ -122,7 +125,7 @@ resize <- function(container, k) {
 #' @author Clifford Anderson-Bergman
 #' @export
 #' @details
-#' See the \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} or \code{help(modelValuesBaseClass)} for information about modelValues objects 
+#' See the \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} or \code{help(modelValuesBaseClass)} for information about modelValues objects 
 #'
 #' @examples
 #'	mvConf <- modelValuesConf(vars = 'a', types = 'double', sizes = list(a = 1) )
@@ -147,13 +150,13 @@ deparse <- function(...) {
 ## are cases where not modifying the nlines behavior may be best. 
 safeDeparse <- function(..., warn = FALSE) {
     out <- deparse(...)
-    if(nimbleOptions('useSafeDeparse')) {
+    if(getNimbleOption('useSafeDeparse')) {
         dotArgs <- list(...)
         if("nlines" %in% names(dotArgs))
             nlines <- dotArgs$nlines else nlines <- 1L
         if(nlines != -1L && length(out) > nlines) {
             if(warn)
-                warning("safeDeparse: truncating deparse output to ", nlines, " lines.")
+                message("  [Note] safeDeparse: truncating deparse output to ", nlines, " line", if(nlines>1) "s" else "")
             out <- out[1:nlines]
         }
     }
@@ -198,3 +201,7 @@ printErrors <- function(excludeWarnings = TRUE) {
         cat(errors, sep = "\n")
     } else cat("No error file found.")
 }
+
+#' @export
+messageIfVerbose <- function(...) 
+    if(getNimbleOption('verbose')) message(...)

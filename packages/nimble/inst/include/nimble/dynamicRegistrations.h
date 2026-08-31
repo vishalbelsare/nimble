@@ -33,6 +33,7 @@
 #include <nimble/dllFinalizer.h>
 #include <nimble/smartPtrs.h>
 #include <nimble/predefinedNimbleLists.h>
+#include <nimble/nimOptim.h>
 
 #include <R_ext/Rdynload.h>
 
@@ -49,12 +50,18 @@ R_CallMethodDef CallEntries[] = {
   FUN(getMVBuildName, 1),
   FUN(derefPtr, 1),
 
+  // nimOptim
+  FUN(CALL_NimOptimProblem_fn, 2),
+  FUN(CALL_NimOptimProblem_gr, 2),
+  FUN(CALL_NimOptimProblem_he, 2),
+
   // accessorClasses
   FUN(manualSetNRows, 2),
   FUN(getVarAndIndices, 1),
   FUN(varAndIndices2mapParts, 3),
   FUN(var2mapParts, 3),
   FUN(populateNodeFxnVectorNew_byDeclID, 4),
+  FUN(populateNodeFxnVectorNew_byDeclID_forDerivs, 5),
   FUN(populateIndexedNodeInfoTable, 2),
   FUN(populateValueMapAccessorsFromNodeNames, 4),
   FUN(populateValueMapAccessors, 3),
@@ -133,9 +140,32 @@ R_CallMethodDef CallEntries[] = {
   FUN(OptimResultNimbleList_castPtrPtrToNamedObjectsPtrSEXP, 1),
   FUN(OptimResultNimbleList_castDerivedPtrPtrToPairOfPtrsSEXP, 1),
   
+  FUN(new_OptimControlNimbleList, 0),
+  FUN(OptimControlNimbleList_castPtrPtrToNamedObjectsPtrSEXP, 1),
+  FUN(OptimControlNimbleList_castDerivedPtrPtrToPairOfPtrsSEXP, 1),
+
+  FUN(new_NIMBLE_ADCLASS, 0),
+  FUN(NIMBLE_ADCLASS_castPtrPtrToNamedObjectsPtrSEXP, 1),
+  FUN(NIMBLE_ADCLASS_castDerivedPtrPtrToPairOfPtrsSEXP, 1),
+
+  FUN(new_waicNimbleList, 0),
+  FUN(waicNimbleList_castPtrPtrToNamedObjectsPtrSEXP, 1),
+  FUN(waicNimbleList_castDerivedPtrPtrToPairOfPtrsSEXP, 1),
+  
+  FUN(new_waicDetailsNimbleList, 0),
+  FUN(waicDetailsNimbleList_castPtrPtrToNamedObjectsPtrSEXP, 1),
+  FUN(waicDetailsNimbleList_castDerivedPtrPtrToPairOfPtrsSEXP, 1),
+
+  FUN(new_AGHQuad_params, 0),
+  FUN(AGHQuad_params_castPtrPtrToNamedObjectsPtrSEXP, 1),
+  FUN(AGHQuad_params_castDerivedPtrPtrToPairOfPtrsSEXP, 1),
+
+  FUN(new_AGHQuad_summary, 0),
+  FUN(AGHQuad_summary_castPtrPtrToNamedObjectsPtrSEXP, 1),
+  FUN(AGHQuad_summary_castDerivedPtrPtrToPairOfPtrsSEXP, 1),
+
   {NULL, NULL, 0}
 };
-
 
 /* Reference prototype: */
 /* R_CMethodDef CEntries[] = { */

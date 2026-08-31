@@ -60,6 +60,8 @@ testsBasicMath = list(
   list(name = 'ratio of scalars', expr = quote(out <- arg1 / arg2), inputDim = c(0,0), outputDim = 0),
   list(name = 'power of scalars via ^', expr = quote(out <- arg1 ^ arg2), inputDim = c(0,0), outputDim = 0),
   list(name = 'power of scalars via pow', expr = quote(out <- pow(arg1, arg2)), inputDim = c(0,0), outputDim = 0),
+  list(name = 'power of scalars via pow_int case 1', expr = quote(out <- pow_int(arg1, round(arg2) + 4)), inputDim = c(0,0), outputDim = 0),
+  list(name = 'power of scalars via pow_int case 2', expr = quote(out <- pow_int(arg1, round(arg2) - 4)), inputDim = c(0,0), outputDim = 0),
   list(name = 'power of scalars via ^ with positive first arg', expr = quote(out <- exp(arg1) ^ arg2), inputDim = c(0,0), outputDim = 0),
   list(name = 'power of scalars via pow with positive first arg', expr = quote(out <- pow(exp(arg1), arg2)), inputDim = c(0,0), outputDim = 0),
   list(name = 'modulo of positive scalars', expr = quote(out <- abs(arg1) %% abs(arg2)), inputDim = c(0,0), outputDim = 0), 
@@ -83,6 +85,8 @@ testsBasicMath = list(
   list(name = 'ratio of vector and scalar', expr = quote(out <- arg1 + arg2), inputDim = c(1,0), outputDim = 1),
   list(name = 'power of vector and scalar via ^', expr = quote(out <- arg1 ^ arg2), inputDim = c(1,0), outputDim = 1),
   list(name = 'power of vector and scalar via pow', expr = quote(out <- pow(arg1, arg2)), inputDim = c(1,0), outputDim = 1),
+  list(name = 'power of vector and scalar via pow_int case 1', expr = quote(out <- pow_int(arg1, round(arg2) + 4)), inputDim = c(1,0), outputDim = 1),
+  list(name = 'power of vector and scalar via pow_int case 2', expr = quote(out <- pow_int(arg1, round(arg2) - 4)), inputDim = c(1,0), outputDim = 1),
   list(name = 'power of vector and constant via ^', expr = quote(out <- arg1 ^ 2), inputDim = c(1,0), outputDim = 1),
   list(name = 'power of vector and constant via pow', expr = quote(out <- pow(arg1, 2)), inputDim = c(1,0), outputDim = 1),
   list(name = 'power of vector and scalar via ^ with positive first arg', expr = quote(out <- exp(arg1) ^ arg2), inputDim = c(1,0), outputDim = 1),
@@ -158,6 +162,24 @@ testsReduction = list(
   list(name = 'prod of matrix', expr = quote(out <- prod(arg1)), inputDim = 2, outputDim = 0),
   list(name = 'norm of matrix', expr = quote(out <- norm(arg1)), inputDim = 2, outputDim = 0, Rcode = quote(out <- norm(arg1, "F")), knownFailure = '(.*compiles|.*runs)') ## NIMBLE's C norm is apparently Frobenius, so R and C nimble functions, and, in addition, is disabled because of C-R inconsistency so compilation fails as well
   )
+
+# January 2024 (1.0.1). We learned of a bug in recycling rule handling.
+# See Issue #1395. It only happens for foo(x, RR(y)) with x and y both function arguments.
+# e.g. foo = `+`
+# This set of tests includes one of each of the C++ template cases for different
+# numbers of arguments.
+# Actually, I realized that all except the 1_1 are not relevant, as currently those are
+# distribution functions always defined to return vectors. I am leaving these as
+# placeholders in case we change this in the future.
+testsRecyclingRuleMatrices = list(
+  list(name = 'matrix + 1_1_2D recycling rule matrix', expr=quote(out<-arg1+pow_int(arg2, 2)), inputDim = c(2, 2), outputDim = 2)
+ # ,list(name = 'matrix + 2_1 recycling rule matrix', expr=quote(out<-arg1+dexp(arg2, 1.2)), inputDim = c(2, 2), outputDim=2),
+ # list(name = 'matrix + 3_1 recycling rule matrix', expr=quote(out<-arg1+dnorm(arg2, 1.2, 2.3)), inputDim = c(2, 2), outputDim=2),
+ # list(name = 'matrix + 4_1 recycling rule matrix', expr=quote(out<-arg1+dt_nonstandard(arg2, 1.2, 2.3, 0.6)), inputDim = c(2, 2), outputDim=2),
+ # list(name = 'matrix + 2_2 recycling rule matrix', expr=quote(out<-arg1+pexp(arg2, 1.2)), inputDim = c(2, 2), outputDim=2),
+ # list(name = 'matrix + 3_2 recycling rule matrix', expr=quote(out<-arg1+pnorm(arg2, 1.2, 2.3)), inputDim = c(2, 2), outputDim=2),
+ # list(name = 'matrix + 4_2 recycling rule matrix', expr=quote(out<-arg1+pt_nonstandard(arg2, 1.2, 2.3, 0.6)), inputDim = c(2, 2), outputDim=2)
+)
 
 testsComparison = list(
   ## scalar

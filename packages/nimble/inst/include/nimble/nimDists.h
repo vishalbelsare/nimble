@@ -25,11 +25,13 @@
 #include "NimArr.h"
 #include "dists.h"
 
-
 double nim_dnorm(double x, double mu, double sigma, int give_log);
 
-bool R_IsNA(NimArr<1, double> &P); // We use ISNA which is a macro for R_IsNA, so now to overload for the vector case, we muse overload R_IsNA
-bool R_isnancpp(NimArr<1, double> &P);
+bool nimIsNA(double x);
+bool nimIsNaN(double x);
+
+bool nimAnyNA(NimArr<1, double> &P); 
+bool nimAnyNaN(NimArr<1, double> &P);
 
 double nimArr_ddirch(NimArr<1, double> &x, NimArr<1, double> &alpha, int give_log);
 void nimArr_rdirch(NimArr<1, double> &ans, NimArr<1, double> &alpha);
@@ -48,6 +50,13 @@ double nimArr_rcat(NimArr<1, double> &prob);
 
 double nimArr_dmnorm_chol(NimArr<1, double> &x, NimArr<1, double> &mean, NimArr<2, double> &chol, double prec_param, int give_log, int overwrite_inputs);
 void nimArr_rmnorm_chol(NimArr<1, double> &ans, NimArr<1, double> &mean, NimArr<2, double> &chol, double prec_param);
+
+NimArr<1, double> PDinverse_logdet(NimArr<2, double> &mat);
+
+double nimArr_dmnorm_inv_ld(NimArr<1, double> &x, NimArr<1, double> &mean, 
+   NimArr<2, double> &mat, NimArr<1, double> &inv_ld, int prec_param, int give_log, int overwrite_inputs);
+void nimArr_rmnorm_inv_ld(NimArr<1, double> &ans, NimArr<1, double> &mean,
+   NimArr<2, double> &mat, NimArr<1, double> &inv_ld, int prec_param);
 
 double nimArr_dmvt_chol(NimArr<1, double> &x, NimArr<1, double> &mean, NimArr<2, double> &chol, double df, double prec_param, int give_log, int overwrite_inputs);
 void nimArr_rmvt_chol(NimArr<1, double> &ans, NimArr<1, double> &mean, NimArr<2, double> &chol, double df, double prec_param);

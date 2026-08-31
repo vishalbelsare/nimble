@@ -2,10 +2,11 @@
 % Please edit documentation in R/MCMC_samplers.R, R/MCMC_RJ.R, R/BNP_samplers.R
 \name{sampler_BASE}
 \alias{sampler_BASE}
+\alias{sampler_prior_samples}
 \alias{sampler_posterior_predictive}
-\alias{sampler_posterior_predictive_branch}
 \alias{sampler_binary}
 \alias{sampler_categorical}
+\alias{sampler_noncentered}
 \alias{sampler_RW}
 \alias{sampler_RW_block}
 \alias{sampler_RW_llFunction}
@@ -21,12 +22,15 @@
 \alias{sampler_RW_block_lkj_corr_cholesky}
 \alias{sampler_CAR_normal}
 \alias{sampler_CAR_proper}
+\alias{sampler_polyagamma}
+\alias{sampler_barker}
+\alias{sampler_partial_mvn}
 \alias{samplers}
 \alias{sampler}
 \alias{binary}
 \alias{categorical}
+\alias{prior_samples}
 \alias{posterior_predictive}
-\alias{posterior_predictive_branch}
 \alias{RW}
 \alias{RW_block}
 \alias{RW_multinomial}
@@ -47,22 +51,27 @@
 \alias{RW_PF_block}
 \alias{RW_lkj_corr_cholesky}
 \alias{RW_block_lkj_corr_cholesky}
+\alias{barker}
+\alias{partial_mvn}
 \alias{sampler_RJ_fixed_prior}
 \alias{sampler_RJ_indicator}
 \alias{sampler_RJ_toggled}
 \alias{sampler_CRP_concentration}
 \alias{sampler_CRP}
+\alias{sampler_slice_CRP_base_param}
 \title{MCMC Sampling Algorithms}
 \usage{
 sampler_BASE()
 
-sampler_posterior_predictive(model, mvSaved, target, control)
+sampler_prior_samples(model, mvSaved, target, control)
 
-sampler_posterior_predictive_branch(model, mvSaved, target, control)
+sampler_posterior_predictive(model, mvSaved, target, control)
 
 sampler_binary(model, mvSaved, target, control)
 
 sampler_categorical(model, mvSaved, target, control)
+
+sampler_noncentered(model, mvSaved, target, control)
 
 sampler_RW(model, mvSaved, target, control)
 
@@ -94,6 +103,12 @@ sampler_CAR_normal(model, mvSaved, target, control)
 
 sampler_CAR_proper(model, mvSaved, target, control)
 
+sampler_polyagamma(model, mvSaved, target, control)
+
+sampler_barker(model, mvSaved, target, control)
+
+sampler_partial_mvn(model, mvSaved, target, control)
+
 sampler_RJ_fixed_prior(model, mvSaved, target, control)
 
 sampler_RJ_indicator(model, mvSaved, target, control)
@@ -103,6 +118,8 @@ sampler_RJ_toggled(model, mvSaved, target, control)
 sampler_CRP_concentration(model, mvSaved, target, control)
 
 sampler_CRP(model, mvSaved, target, control)
+
+sampler_slice_CRP_base_param(model, mvSaved, target, control)
 }
 \arguments{
 \item{model}{(uncompiled) model on which the MCMC is to be run}
@@ -114,12 +131,24 @@ sampler_CRP(model, mvSaved, target, control)
 \item{control}{named list that controls the precise behavior of the sampler, with elements specific to \code{samplertype}.  The default values for control list are specified in the setup code of each sampling algorithm.  Descriptions of each sampling algorithm, and the possible customizations for each sampler (using the \code{control} argument) appear below.}
 }
 \description{
-Details of the MCMC sampling algorithms provided with the NIMBLE MCMC engine
+Details of the MCMC sampling algorithms provided with the NIMBLE MCMC engine; HMC samplers are in the \code{nimbleHMC} package and particle filter samplers are in the \code{nimbleSMC} package. Additional details, including some recommendations for samplers that may perform better than the samplers that NIMBLE assigns by default are provided in Section 7.11 of the User Manual.
 }
+\section{Hamiltonian Monte Carlo samplers}{
+
+
+Hamiltonian Monte Carlo (HMC) samplers are provided separately in the \code{nimbleHMC} R package.  After loading \code{nimbleHMC}, see \code{help(HMC)} for details.
+}
+
+\section{Particle filter samplers}{
+
+
+As of Version 0.10.0 of NIMBLE, the \code{RW_PF} and \code{RW_PF_block} samplers are provided separately in the `nimbleSMC` package. After loading \code{nimbleSMC}, see \code{help(samplers)} for details.
+}
+
 \section{\code{sampler_base}}{
  base class for new samplers
 
-When you write a new sampler for use in a NIMBLE MCMC (see \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual}), you must include \code{contains = sampler_BASE}.
+When you write a new sampler for use in a NIMBLE MCMC (see \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual}), you must include \code{contains = sampler_BASE}.
 }
 
 \section{binary sampler}{
@@ -133,9 +162,13 @@ The binary sampler accepts no control list arguments.
 \section{categorical sampler}{
 
 
-The categorical sampler performs Gibbs sampling for a single node, which must follow a categorical (\code{dcat}) distribution.
+The categorical sampler performs Gibbs sampling for a single node, which generally would follow a categorical (\code{dcat}) distribution.  The categorical sampler can be assigned to other distributions as well, in which case the number of possible outcomes (1, 2, 3, ..., k) of the distribution must be specified using the 'length' control argument.
 
-The categorical sampler accepts no control list arguments.
+The categorical sampler accepts the following control list elements:
+\itemize{
+\item length. A character string or a numeric argument.  When a character string, this should be the name of a parameter of the distribution of the target node being sampled.  The length of this distribution parameter (considered as a 1-dimensional vector) will be used to determine the number of possible outcomes of the target node's distribution.  When a numeric value, this value will be used as the number of possible outcomes of the target node's distribution.  (default = "prob")
+\item check. A logical argument.  When FALSE, no check for a 'dcat' prior distribution for the target node takes place. (default = TRUE)
+}
 }
 
 \section{RW sampler}{
@@ -154,6 +187,8 @@ The RW sampler accepts the following control list elements:
 }
 
 The RW sampler cannot be used with options log=TRUE and reflective=TRUE, i.e. it cannot do reflective sampling on a log scale.
+
+After an MCMC algorithm has been configured and built, the value of the proposal standard deviation of a RW sampler can be modified using the setScale method of the sampler object.  This use the scalar argument to modify the current value of the proposal standard deviation, as well as modifying the initial (pre-adaptation) value to which the proposal standard deviation is reset, at the onset of a new MCMC chain.
 }
 
 \section{RW_block sampler}{
@@ -169,9 +204,53 @@ The RW_block sampler accepts the following control list elements:
 \item adaptFactorExponent. Exponent controling the rate of decay of the scale adaptation factor.  See Shaby and Wells, 2011, for details. (default = 0.8)
 \item scale. The initial value of the scalar multiplier for propCov.  If adaptive = FALSE, scale will never change. (default = 1)
 \item propCov. The initial covariance matrix for the multivariate normal proposal distribution.  This element may be equal to the character string 'identity', in which case the identity matrix of the appropriate dimension will be used for the initial proposal covariance matrix. (default = 'identity')
+\item tries. The number of times this sampler will repeatedly operate on each MCMC iteration.  Each try consists of a new proposed transition and an accept/reject decision of this proposal.  Specifying tries > 1 can help increase the overall sampler acceptance rate and therefore chain mixing. (default = 1)
 }
 
+After an MCMC algorithm has been configured and built, the value of the proposal standard deviation of a RW_block sampler can be modified using the setScale method of the sampler object.  This use the scalar argument to will modify the current value of the proposal standard deviation, as well as modifying the initial (pre-adaptation) value which the proposal standard deviation is reset to, at the onset of a new MCMC chain.
+
+Operating analogous to the setScale method, the RW_block sampler also has a setPropCov method.  This method accepts a single matrix-valued argument, which will modify both the current and initial (used at the onset of a new MCMC chain) values of the multivariate normal proposal covariance.
+
 Note that modifying elements of the control list may greatly affect the performance of this sampler. In particular, the sampler can take a long time to find a good proposal covariance when the elements being sampled are not on the same scale. We recommend providing an informed value for \code{propCov} in this case (possibly simply a diagonal matrix that approximates the relative scales), as well as possibly providing a value of \code{scale} that errs on the side of being too small. You may also consider decreasing \code{adaptFactorExponent} and/or \code{adaptInterval}, as doing so has greatly improved performance in some cases.
+}
+
+\section{Barker proposal sampler}{
+
+
+The Barker proposal sampler implements a (multivariate) gradient-based sampling scheme, following the work of Livingstone and Zanella (2022) and Vogrinc et al. (2023). This sampler may be applied to any set of continuous-valued model nodes, to any single continuous-valued multivariate model node, or to any combination thereof. The sampler uses an gradient-based adaptive Metropolis-Hastings algorithm with a multivariate normal proposal distribution, which can use a full proposal covariance matrix (recommended for most problems) or a diagonal matrix. To use the Barker sampler, you must set \code{buildDerivs = TRUE} when creating your model via \code{nimbleModel}.
+
+The Barker sampler accepts the following control list elements:
+
+\itemize{
+\item \code{adaptive}. A logical argument, specifying whether the sampler should adapt the scalar global scale (a coefficient scaling the entire proposal covariance matrix) and (possibly) the multivariate normal proposal covariance matrix throughout the course of MCMC execution.  If only the scale should undergo adaptation, this argument should be specified as \code{TRUE}. (default = TRUE)
+\item \code{adaptScaleOnly}. A logical argument, specifying whether adaption should be done only for the global scale and not for the covariance matrix.  This argument is only relevant when \code{adaptive = TRUE}. When \code{adaptScaleOnly = TRUE}, only the scale is adapted, tuned to achieve a theoretically good acceptance rate (specified by \code{targetAcceptanceRate}). (default = FALSE)
+\item \code{adaptCov}. A logical argument, specifying whether adaption should be done for the full proposal covariance matrix (\code{TRUE}) or only for the diagonal of the matrix (the proposal variances) (\code{FALSE}). This argument is only relevant when \code{adaptive = TRUE} and \code{adaptScaleOnly = FALSE}. The full covariance matrix or diagonal values are tuned to mimic the full covariance or the variances, respectively, of the empirical samples from the posterior.
+\item \code{scale}. Initial multiplier that scales the step-size of the proposal steps. If adaptation is turned off, this determines the step-size. (default = 1)
+\item \code{propCov}. Initial value for proposal covariance. This can be the string "identity" (indicating the identity matrix), a single number that scales the identity matrix, a vector of values that provides the diagonal values (variances) of the matrix (of length equal to the number of parameters in the transformed space), or a full proposal covariance matrix (with number of rows and columns equal to the number of parameters in the transformed space). (default = 1)
+\item \code{adaptInterval}. The interval on which to perform adaptation of the scale (and diagonal variance values when \code{adaptCov = FALSE}). At the moment only the value 1 is allowed.
+\item \code{adaptIntervalCov}. The interval on which to perform adaptation of the full proposal covariance. This only has effect when \code{adaptCov = TRUE}. The default of 10 was chosen based on performance on various examples but other values may improve mixing in specific cases. Note that if \code{invariantWeight = FALSE}, changing this value also has the effect of modifying the influence of the most recent set of empirical samples relative to the current proposal covariance. (default = 10)
+
+\item \code{adaptDelayCov}. The number of initial iterations in which the off-diagonal elements of the proposal covariance are not adapted. In experiments, adapting the full covariance from the first iteration can produce an algorithm that performs poorly as the covariances may be adapted while the chain is still burning in, during whih the samples are not reflective of the posterior. Only relevant if \code{adaptCov = TRUE}. The default of 100 was chosen based on performance on various examples but other values may improve mixing in specific cases. (default = 100)
+\item \code{adaptFactorExponent}. Exponent controlling the rate of decay of the scale adaptation factor. As suggested in Livingstone and Zanella (2022), the default is 0.6.
+\item \code{targetAcceptanceRate}. Acceptance rate targeted when adapting the global scale. As suggested in Vogrinc et al. (2023) the default is 0.574, as in the MALA algorithm.
+\item \code{bimodal}. A logical argument indicating whether to use the bimodal proposal of Vogrinc et al. (2023) (\code{TRUE}) or simply a normal distribution (\code{FALSE}). (default = TRUE)
+\item \code{sigma}. The value of \code{sigma} in the bimodal Barker proposal suggested in Vogrinc et al. (2023). Only used if \code{bimodal = TRUE}. (default = 0.1)
+\item \code{invariantWeight}. A logical argument indicating whether to modify the relative weight of the most recent set of empirical samples relative to the current proposal covariance such that changing \code{adaptIntervalCov} has little effect on the weighting. While in principle setting this to \code{TRUE} makes sense, in experiments this tended to make MCMC performance worse, so the default is \code{FALSE}.
+}
+
+The Barker proposal provides a gradient-based Metropolis-Hastings algorithm demonstrated to be more robust to tuning parameters than other gradient-based methods, in particular the Metropolis-adjusted Langevin algorithm (MALA). The approach tends to do a better job of adjusting to heterogeneity in the scaling of the target elements and to bad (particularly overly large) initial proposal variance(s) than random walk Metropolis-Hastings (i.e., the \code{RW_block} sampler).
+
+For some problems without strong dependence, adapting only the diagonal of the proposal covariance (\code{adaptCov = FALSE}) may perform well, but for most problems, use of the full proposal covariance matrix is expected to perform better. The implementation of the proposal covariance for the Barker proposal is derived based on the use of preconditioning to transform the parameters to be approximately linearly independent. This is equivalent to and implemented as a dense proposal covariance matrix.
+
+Adaptation of the full proposal covariance matrix (i.e., of the off-diagonal elements) starting from the first iteration of the MCMC can cause poor MCMC performance by adapting the covariances based on samples in which the MCMC is burning in, which can prevent the sampler from burning in and from finding a good proposal covariance in a reasonable number of iterations. For this reason, by default the sampler only adapts the global scale and proposal variances for the first \code{adaptDelayCov} iterations, defaulting to 100 iterations.
+
+The Barker proposal uses the gradient of the log posterior density with respect to the parameters, using nimble's automatic differentiation (AD) system. Given this, elements of the target vector that are constrained in some fashion (either by their prior or relative to other elements, such as sampling the elements of a Dirichlet-distributed vector or the elements of a positive definite matrix) are transformed to an unconstrained space using nimble's automatic parameter transformation system. Thus the proposal covariance is with respect to this transformed space.  
+
+To use this sampler instead of `RW_block` as the default multivariate sampler for continuous distributions, set \code{nimbleOptions(MCMCuseBarkerAsDefaultMV = TRUE)}
+
+After an MCMC algorithm has been configured and built, the value of the global scale of a Barker sampler can be modified using the \code{setScale method} of the sampler object.  This use the scalar argument to will modify the current value of the scale, as well as modifying the initial (pre-adaptation) value which the scale is reset to, at the onset of a new MCMC chain.
+
+Operating analogous to the \code{setScale} method, the Barker sampler also has a \code{setPropVar} (for when \code{adaptCov = FALSE}) and \code{setPropCov} (for when \code{adaptCov = TRUE}). These method accept a single vector- and matrix-valued argument, respectively, which will modify both the current and initial (used at the onset of a new MCMC chain) values of the multivariate normal proposal variances or covariance, respectively.
 }
 
 \section{RW_llFunction sampler}{
@@ -225,7 +304,7 @@ The automated factor slice sampler accepts the following control list elements:
 \itemize{
 \item sliceWidths.  A numeric vector of initial slice widths.  The length of the vector must be equal to the sum of the lengths of all nodes being used by the automated factor slice sampler.  Defaults to a vector of 1's.
 \item sliceAdaptFactorMaxIter.  The number of iterations for which the factors (eigenvectors) will continue to adapt to the posterior correlation. (default = 15000)
-\item sliceAdaptFactorInterval.  The interval on which to perform factor adaptation. (default = 1000)
+\item sliceAdaptFactorInterval.  The interval on which to perform factor adaptation. (default = 200)
 \item sliceAdaptWidthMaxIter.  The maximum number of iterations for which to adapt the widths for a given set of factors. (default = 512)
 \item sliceAdaptWidthTolerance. The tolerance for when widths no longer need to adapt, between 0 and 0.5. (default = 0.1)
 \item sliceMaxSteps.  The maximum number of expansions which may occur during the 'stepping out' procedure. (default = 100)
@@ -271,12 +350,12 @@ The RW_llFunction_block sampler accepts the following control list elements:
 \section{RW_multinomial sampler}{
 
 
-This sampler is designed for sampling multinomial target distributions.  The sampler performs a series of Metropolis-Hastings steps between pairs of groups.  Proposals are generated via a draw from a binomial distribution, whereafter the proposed number density is moved from one group to another group.  The acceptance or rejection of these proposals follows a standard Metropolis-Hastings procedure.  Probabilities for the random binomial proposals are adapted to a target acceptance rate of 0.5.
-
+This sampler updates latent multinomial distributions, using Metropolis-Hastings proposals to move observations between pairs of categories.  Each proposal moves one or more observations from one category to another category, and acceptance or rejection follows standard Metropolis-Hastings theory.  The number of observations in the proposed move is randomly drawn from a discrete uniform distribution, which is bounded above by the 'maxMove' control argument.  The RW_multinomial sampler can make multiple independent attempts at transitions on each sampling iteration, which is govered by the 'tries' control argument.
+ 
 The \code{RW_multinomial} sampler accepts the following control list elements:
 \itemize{
-\item adaptive.  A logical argument, specifying whether the sampler should adapt the binomial proposal probabilities throughout the course of MCMC execution. (default = TRUE)
-\item adaptInterval.  The interval on which to perform adaptation.  A minimum value of 100 is required. (default = 200)
+\item maxMove.  An integer argument, specifying the upper bound for the number of observations to propose moving, on each independent propose/accept/reject step.  The number to move is drawn from a discrete uniform distribution, with lower limit one, and upper limit given by the minimum of 'maxMove' and the number of observations in the category. The default value for 'maxMove' is 1/20 of the total number of observations comprising the target multinomial distribution (given by the 'size' parameter of the distribution).
+\item tries.  An integer argument, specifying the number of independent Metropolis-Hastings proposals (and subsequent acceptance or rejection) that are attempted each time the sampler operates.  For example, if 'tries' is one, then a single proposal (of moving one or more observations to a different category) will be made, and either accepted or rejected.  If tries is two, this process is repeated twice.  The default value for 'tries' scales as the cube root of the total number of observations comprising the target multinomial distribution (given by the 'size' parameter of the distribution).
 }
 }
 
@@ -297,7 +376,7 @@ The \code{RW_dirichlet} sampler accepts the following control list elements:
 \section{RW_wishart sampler}{
 
 
-This sampler is designed for sampling non-conjugate Wishart and inverse-Wishart distributions.  More generally, it can update any symmetric positive-definite matrix (for example, scaled covaraiance or precision matrices).  The sampler performs block Metropolis-Hastings updates following a transformation to an unconstrained scale (Cholesky factorization of the original matrix, then taking the log of the main diagonal elements.
+This sampler is designed for sampling non-conjugate Wishart and inverse-Wishart distributions.  More generally, it can update any symmetric positive-definite matrix (for example, scaled covariance or precision matrices).  The sampler performs block Metropolis-Hastings updates following a transformation to an unconstrained scale (Cholesky factorization of the original matrix, then taking the log of the main diagonal elements.
 
 The \code{RW_wishart} sampler accepts the following control list elements:
 \itemize{
@@ -340,6 +419,107 @@ The \code{RW_lkj_corr_cholesky} sampler accepts the following control list eleme
 }
 
 Note that this sampler is likely run much more slowly than the blocked sampler for the LKJ distribution, as updating each single element will generally incur the full cost of updating all dependencies of the entire matrix.
+}
+
+\section{polyagamma sampler}{
+
+
+The polyagamma sampler uses \enc{Pólya}{Polya}-gamma data augmentation to do conjugate sampling for the parameters in the linear predictor of a logistic regression model (Polson et al., 2013), analogous to the Albert-Chib data augmentation scheme for probit regression. This sampler is not assigned as a default sampler by \code{configureMCMC} and so can only be used if manually added to an MCMC configuration.
+
+As an example, consider model code containing:
+\preformatted{for(i in 1:n) {
+  logit(prob[i]) <- beta0 + beta1*x1[i] + beta2*x2[i] + u[group[i]] 
+  y[i] ~ dbinom(prob = prob[i], size = size[i])
+}
+for(j in 1:num_groups)
+  u[j] ~ dnorm(0, sd = sigma_group)
+}
+where \code{beta0}, \code{beta1}, and \code{beta2} are fixed effects with normal priors, \code{u} is a random effect associated with groups of data, and \code{group[i]} gives the group index of the i-th observation, \code{y[i]}. In this model, the parameters \code{beta0}, \code{beta1}, \code{beta2}, and all the \code{u[j]} can be jointly sampled by the polyagamma sampler, i.e., they will be its target nodes.
+
+After building a model (calling \code{nimbleModel}) containing the above code, one would configure the sampler as follows:
+\preformatted{MCMCconf <- configureMCMC(model)
+logistic_nodes <- c("beta0", "beta1", "beta2", "u")
+# Optionally, remove default samplers.
+MCMCconf$removeSamplers(logistic_nodes) 
+MCMCconf$addSampler(target = logistic_nodes, type = "polyagamma",
+  control = list(fixedDesignColumns=TRUE))
+}
+
+As shown here, the stochastic dependencies (\code{y[i]} here) of the target nodes must follow \code{dbin} or \code{dbern} distributions. The logit transformation of their probability parameter must be a linear function (technically an affine function) of the target nodes, which themselves must have \code{dnorm} or \code{dmnorm} priors. Zero inflation to account for structural zeroes is also supported, allowed as discussed below. The stochastic dependencies will often but not always be the observations in the logistic regression and will be referred to as 'responses' henceforth. Internally, the sampler draws latent values from the \enc{Pólya}{Polya}-gamma distribution, one per response. These latent values are then used to draw from the multivariate normal conditional distribution of the target nodes.
+
+Importantly, note that because the \enc{Pólya}{Polya}-gamma draws are not retained when an iteration of the sampler finishes, one generally wants to apply the sampler to all parameter nodes involved in the linear predictor of the logistic regression, to avoid duplicative \enc{Pólya}{Polya}-gamma draws of the latent values. If there are stochastic indices (e.g., if \code{group[i]} above is stochastic), the \enc{Pólya}{Polya}-gamma sampler can still be used, but the stochastic nodes cannot be sampled by it and must have separate sampler(s). It is also possible in some models that regression parameters can be split into (conditionally independent) groups that can be sampled independently, e.g., if one has distinct logistic regression specifications for different sets of responses in the model.
+
+Sampling involves use of the design matrix. The design matrix includes one column corresponding to each regression covariate as well as one columnar block corresponding to each random effect. In the example above, the columns would include a vector of ones (to multiply \code{beta0}), the vectors \code{x1} and \code{x2}, and a vector of indicators for each \code{u[j]} (with a 1 in row \code{i} if \code{group[i]} is \code{j}), resulting in \code{3+num_groups} columns. Note that the polyagamma sampler can determine the design matrix from the model, even when written as above such that the design matrix is not explicitly in the model code. It is also possible to write model code for the linear prediction using matrix multiplication and an explicit design matrix, but that is not necessary.
+
+Often the design matrix is fixed in advance, but in some cases elements of the matrix may be stochastic and sampled during the MCMC. That would be the case if there are missing values (e.g., missing covariate values (declared as stochastic nodes)) or stochastic indexing (e.g., unknown assignment of responses to clusters, as mentioned above). Note that changes in the values of any of the \code{beta} or \code{u[j]} target nodes in the example above do not change the design matrix.
+
+Recalculating the elements of the design matrix at every iteration is costly and will likely greatly slow the sampler. To alleviate this, users can specify which columns of the design matrix are fixed (non-stochastic) using the \code{fixedDesignColumns} control argument. If all columns are fixed, which will often be the case, this argument can be specified simply as \code{TRUE}. Note that the sampler does not determine if any or all columns are fixed, so users wishing to take advantage of the large speed gains from having fixed columns should provide this control argument. Columns indicated as fixed will be determined (if necessary) when the sampler is first run and retained for subsequent iterations.
+
+By default, NIMBLE will determine the design matrix (and as discussed above will do so repeatedly at each iteration for any columns not indicated as being fixed). If the matrix has no stochastic elements, users may choose to provide the matrix directly to the sampler via the \code{designMatrix} control argument. This will save time in computing the matrix initially but likely will have limited benefit relative to the cost of running many iterations of MCMC and therefore can be omitted in most cases.
+
+The sampler allows for binomial responses with stochastic sizes. This would be the case in the above example if the \code{size[i]} values are themselves declared as unobserved stochastic nodes and thus are sampled by MCMC.
+
+The sampler allows for zero inflation of the response probability in that the probability determined by the inverse logit transformation of the linear predictor can be multipled by one or more binary scalar nodes to produce the response probability. These binary nodes must be specified via the \code{dbern} distribution or the \code{dbin} distribution with size equal to one. This functionality is intended for use in cases where another part of the model introduces structural zeroes, such as in determining occupancy in ecological occupancy models. An example would be if the above were modified by \code{y[i] ~ dbinom(prob = z[i] * p[i], size = size[i])}, where each \code{z[i]} is either 0 or 1.
+
+The polyagamma sampler accepts the following control list elements:
+\itemize{
+\item fixedDesignColumns. Either a single logical value indicating if the design matrix is fixed (non-stochastic) or a logical vector indicating which columns are fixed. In the latter case, the columns must be ordered exactly as the ordering of target node elements given by \code{model$expandNodeNames(target, returnScalarComponents = TRUE)}, where \code{target} is the same as the \code{target} argument to \code{configureMCMC$addSampler} above. (default = FALSE)
+\item designMatrix. The full design matrix with rows corresponding to the ordering of the responses and columns ordered exactly as the ordering of target node elements given by \code{model$expandNodeNames(target, returnScalarComponents = TRUE)}, where \code{target} is the same as the \code{target} argument to \code{configureMCMC$addSampler} above. If provided, all columns are assumed to be fixed, ignoring the \code{fixedDesignColumns} control element.
+\item nonTargetNodes. Additional stochastic nodes involved in the linear predictor that are not to be sampled as part of the sampler. This must include any nodes specifying stochastic indexes (e.g., \code{"group"} if the \code{group[i]} values are stochastic) and any parameters considered known or that for any reason one does not want to sample. Providing \code{nonTargetNodes} is required in order to allow NIMBLE to check for the presence of zero inflation.  
+\item check. A logical value indicating whether NIMBLE should check various conditions required for validity of the sampler. This is provided for rare cases where the checking may be overly conservative and a user is sure that the sampler is valid and wants to override the checking. (default = TRUE)
+}
+}
+
+\section{noncentered sampler}{
+
+
+The noncentered sampler is designed to sample the mean or standard deviation of a set of centered random effects while also moving the random effects values to possibly allow better mixing. The noncentered sampler deterministically shifts or scales the dependent node values to be consistent with the proposed value of the target (the mean or the standard deviation) such that the effect is to sample in a noncentered parameterization (Yu and Meng 2011), via an on-the-fly reparameterization. This can improve mixing by updating the target node based on information in the model nodes whose parent nodes are the dependent nodes of the target (i.e,. the "grandchild" nodes of the target; these will often be data nodes). This comes at the extra computational cost of calculating the logProbability of the "grandchild" nodes.
+
+It is still necessary to have other samplers on the random effects values.
+
+Mathematically, the noncentered sampler operates in one dimension of a transformed parameter space. When sampling a mean, all random effects will be shifted by the same amount as the mean. When sampling a standard deviation, all random effects (relative to their means) will be scaled by the same factor as the standard deviation.
+Consider a model that includes the following code:
+\preformatted{for(i in 1:n)
+   y[i] ~ dnorm(beta1*x[i] + u[group[i]], sd = sigma_obs)
+for(j in 1:num_groups)
+   u[j] ~ dnorm(beta0, sd = sigma_group)
+}
+where \code{u} is a random effect associated with groups of data, and \code{group[i]} gives the group index of the i-th observation. This model has a centered random effect, because the \code{u[j]} have the intercept \code{beta0} as their mean. In basic univariate sampling, updates to \code{beta0} or to \code{sigma_group} do not change \code{u[j]}, making only small moves possible if \code{num_groups} is large. When the noncentered sampler considers a new value for \code{beta0}, it will shift all the \code{u[j]} so that (in this case) their prior probabilities do not change. If the noncentered sampler considers a new value for \code{sigma_group}, it will rescale all the \code{u[j]} accordingly.
+
+The effect of such a sampling strategy is to update \code{beta0} and \code{sigma_group} as if the model had been written in a different (noncentered) way. For updating \code{beta0}, it would be:
+\preformatted{for(i in 1:n)
+   y[i] ~ dnorm(beta0 + beta1*x[i] + u[group[i]], sd = sigma_obs)
+for(j in 1:num_groups)
+   u[j] ~ dnorm(0, sd = sigma_group)
+}
+For updating \code{sigma_group}, it would be:
+\preformatted{for(i in 1:n)
+   y[i] ~ dnorm(beta1*x[i] + u[group[i]] * sigma_group, sd = sigma_obs)
+for(j in 1:num_groups)
+   u[j] ~ dnorm(beta0, sd = 1)
+}
+
+Whether centered or noncentered parameterizations result in better sampling can depend on the model and the data. Therefore Yu and Meng (2011) recommended an "interweaving" strategy of using both kinds of samplers. Adding the noncentered sampler (on either the mean or standard deviation or both) to an existing MCMC configuration for a model specified using the centered parameterization (and with a sampler already assigned to the target node) produces an overall sampling approach that is a variation on the interweaving strategy of Yu and Meng (2011). This provides the benefits of sampling in both the centered and noncentered parameterizations in a single MCMC. 
+
+There is a higher computational cost to the noncentered sampler (or to writing the model directly in one of the equivalent ways shown). The cost is that when updating \code{beta0} or \code{sigma_group}, the relevant log probabilities calculations will include (in this case) all the of \code{y[i]}, i.e. the "grandchild" nodes of \code{beta0} or \code{sigma_group}.
+
+The noncentered sampler is not assigned by default by \code{configureMCMC} but must be manually added. For example:
+\preformatted{MCMCconf <- configureMCMC(model)
+MCMCconf$addSampler(target = "beta0", type = "noncentered",
+  control = list(param = "location", sampler = "RW"))
+MCMCconf$addSampler(target = "sigma_group", type = "noncentered",
+  control = list(param = "scale", sampler = "RW"))
+}
+
+While the target node will generally be either the mean (location) or standard deviation (scale) of a set of other nodes (e.g., random effects), it could in theory be used in other contexts and one can choose whether the transformation is a shift or a scale operation. In a shift operation (e.g., when the sampling target is a mean), the dependent nodes are set to their previous values plus the difference between the proposed value and previous value for the target. In a scale operation (e.g., when the sampling target is the standard deviation), the dependent nodes minus their means are multiplied by the ratio of the proposed value to the previous value for the target and the previous value for the target. Whether to shift or scale is determined from the \code{param} element of the control list.
+
+The sampling algorithm for the target node can either be adaptive Metropolis random walk (which uses NIMBLE's \code{RW} sampler) or slice sampling (which uses NIMBLE's \code{slice} sampler), determined from the \code{sampler} element of the control list. In either case, the underlying sampling accounts for the Jacobian of the deterministic shifting or scaling of the dependent nodes (in the case of shifting, the Jacobian is equal to 1 and has no impact). When the target is the standard deviation of normally-distributed dependent nodes, the Jacobian cancels with the prior distribution for the dependent nodes, and the update is in effect based only on the prior for the target and the distribution of the "grandchild" nodes. 
+
+The \code{noncentered} sampler accepts the following control list elements:
+\itemize{
+\item sampler. A character string, either \code{"RW"} or \code{"slice"} specifying the type of sampler to be used for the target node. (default = \code{"RW"})
+\item param. A character string, either \code{"location"} or \code{"scale"} specifying whether sampling is done as shifting or scaling the dependent nodes. (default = \code{"location"})
+}
 }
 
 \section{CAR_normal sampler}{
@@ -387,16 +567,44 @@ The CRP sampler is designed for fitting models involving Dirichlet process mixtu
 The CRP_concentration sampler is designed for Bayesian nonparametric mixture modeling. It is exclusively assigned to the concentration parameter of the Dirichlet process when the model is specified using the Chinese Restaurant Process distribution, \code{dCRP}. This sampler is assigned by default by NIMBLE's default MCMC configuration and can only be used when the prior for the concentration parameter is a gamma distribution. The assigned sampler is an augmented beta-gamma sampler as discussed in Section 6 in Escobar and West (1995).
 }
 
-\section{posterior_predictive and posterior_predictive_branch samplers}{
+\section{prior_samples sampler}{
 
 
-The posterior_predictive sampler is only appropriate for use on terminal stochastic nodes.  Note that such nodes play no role in inference but have often been included in BUGS models to accomplish posterior predictive checks.  NIMBLE allows posterior predictive values to be simulated independently of running MCMC, for example by writing a nimbleFunction to do so.  This means that in many cases where terminal stochastic nodes have been included in BUGS models, they are not needed when using NIMBLE.
+The prior_samples sampler uses a provided set of numeric values (\code{samples}) to define the prior distribution of one or more model nodes.  Once every MCMC iteration, the prior_samples sampler randomly selects new value(s) from the numeric values provided, and probabilistically accepts these as the new values for the specific target node(s) using a standard Metropolis-Hastings accept/reject step.  This allows one to define the prior distribution of model parameters empirically, using a set of numeric \code{samples}, presumably obtained previously using MCMC.
 
-The posterior_predictive sampler functions by calling the simulate() method of relevant node, then updating model probabilities and deterministic dependent nodes.  The application of a posterior_predictive sampler to any non-terminal node will result in invalid posterior inferences.  The posterior_predictive sampler will automatically be assigned to all terminal, non-data stochastic nodes in a model by the default MCMC configuration, so it is uncommon to manually assign this sampler.
+The \code{target} node may be either a single scalar node (scalar case), or a collection of model nodes (multidimensional case).  In the scalar case, a propsed value is randomely selected from the \code{samples} vector.  In the multidimensional case, a randomly selected rows of the \code{samples} matrix is used as the proposed values.
 
-Closely related, the posterior_predictive_branch is only appropriate for nodes for which all downstream (dependent) nodes are non-data; that is, the branch beginning from that node is a jointly posterior predictive network of nodes.  This sampler operates by calling the simulate method of all nodes in this downstream (non-data) network, which serves to improve MCMC mixing of the posterior predictive branch.
+Logically, prior_samples samplers might want to operate first, in advance of other samplers, on every MCMC iteration.  By default, at the time of MCMC building, all prior_samples samplers are re-ordered to appear first in the list of MCMC samplers.  This behavior can be subverted, however, by setting \code{nimbleOptions(MCMCorderPriorSamplesSamplersFirst = FALSE)}.
 
-The posterior_predictive and posterior_predictive_branch samplers accept no control list arguments.
+The prior_samples sampler can be assigned to non-stochastic model nodes (nodes which are not assigned a prior distribution in the model). In fact, it is recommended that nodes being assigned a prior_samples are not provided with a prior distribution in the model, and rather, that these nodes only appear on the right-hand-side of model declaration lines.  In such case that a prior_samples sampler is assigned to a nodes with a prior distribution, the prior distribution will be overridden by the \code{samples} provided to the sampler; however, the node will still be a stochastic node for other purposes, and will contribute to the model joint-density (using the current values relative to the prior distribution), will have an MCMC sampler assigned to it by default, and also may introduce potential for confusion.  In this case, a message is issued at the time of MCMC building.
+
+The prior_samples sampler accepts the following control list elements:
+\itemize{
+\item \code{samples}. A numeric vector or matrix.  When the \code{target} node is a single scalar-valued node, \code{samples} should be a numeric vector.  When the \code{target} node specifies more \code{d} > 2 dimensions, \code{samples} should be a matrix containing \code{d} columns.  The \code{samples} control argument is required.
+}
+}
+
+\section{posterior_predictive sampler}{
+
+
+The posterior_predictive sampler operates only on posterior predictive stochastic nodes. A posterior predictive node is a node that is not itself data and has no data nodes in its entire downstream (descendant) dependency network. Note that such nodes play no role in inference for model parameters but have often been included in BUGS models to make predictions, including for posterior predictive checks. As of version 0.13.0, NIMBLE samples model parameters without conditioning on the posterior predictive nodes and samples conditionally from the posterior predictive nodes as the last step of each MCMC iteration.
+
+(Also note that NIMBLE allows posterior predictive values to be simulated independently of running MCMC, for example by writing a nimbleFunction to do so.  This means that in many cases where terminal stochastic (posterior predictive) nodes have been included in BUGS models, they are not needed when using NIMBLE.)
+
+The posterior_predictive sampler functions by simulating new values for all downstream (dependent) nodes using their conditional distributions, as well as updating the associated model probabilities.  A posterior_predictive sampler will automatically be assigned to all trailing non-data stochastic nodes in a model, or when possible, to any node at a point in the model after which all downstream (dependent) stochastic nodes are non-data.
+
+The posterior_predictive sampler accepts no control list arguments.
+}
+
+\section{partial_mvn sampler}{
+
+
+The partial_mvn sampler is designed to sample multivariate normal distributions that are partially observed.  That is, some dimensions of the target node are observed data values, some dimensions are not data. For dimensions that have no data nodes dependent on them, sampling is done from the conditional multivariate normal predictive distribution. Otherwise, sampling is accomplished using either univariate or multivariate random walk Metropolis Hastings of the unobserved dimensions, as determined by the \code{multivariateNodesAsScalars} argument (or using the Barker sampler based on the \code{MCMCuseBarkerAsDefaultMV} nimble option).
+
+The \code{partial_mvn} sampler accepts the following control list elements:
+\itemize{
+\item multivariateNodesAsScalars. A logical argument, specifying whether the sampler should sample the unobserved parts of a partially observed node jointly or independently (default = FALSE).
+}
 }
 
 \section{RJ_fixed_prior sampler}{
@@ -415,12 +623,6 @@ This sampler proposes transitions of a binary indicator variable, corresponding 
 
 
 This sampler operates in the framework of variable selection using reversible jump MCMC.  Specifically, it conditionally performs updates of the target variable of interest using the originally-specified sampling configuration, when variable is "in the model".  This is a specialized sampler used by \code{configureRJ} when adding a reversible jump MCMC . See \code{help{configureRJ}} for details. It is not intended for direct assignment.
-}
-
-\section{Particle filter samplers}{
-
-
-As of Version 0.10.0 of NIMBLE, the \code{RW_PF} and \code{RW_PF_block} samplers live in the `nimbleSMC` package. Please load that package in order to use the samplers.
 }
 
 \examples{
@@ -447,8 +649,6 @@ As of Version 0.10.0 of NIMBLE, the \code{RW_PF} and \code{RW_PF_block} samplers
 
 # mcmcConf$addSampler(target = 'x[1:10]', type = 'ess')   ## x[1:10] ~ dmnorm()
 
-# mcmcConf$addSampler(target = 'x[1:5]', type = 'RW_multinomial')   ## x[1:5] ~ dmulti()
-
 # mcmcConf$addSampler(target = 'p[1:5]', type = 'RW_dirichlet')   ## p[1:5] ~ ddirch()
 
 ## y[1] is a posterior predictive node:
@@ -458,9 +658,13 @@ As of Version 0.10.0 of NIMBLE, the \code{RW_PF} and \code{RW_PF_block} samplers
 \references{
 Andrieu, C., Doucet, A., and Holenstein, R. (2010). Particle Markov Chain Monte Carlo Methods. \emph{Journal of the Royal Statistical Society: Series B (Statistical Methodology)}, 72(3), 269-342.
 
+Hoffman, Matthew D., and Gelman, Andrew (2014). The No-U-Turn Sampler: Adaptively setting path lengths in Hamiltonian Monte Carlo. \emph{Journal of Machine Learning Research}, 15(1): 1593-1623.
+
 Escobar, M. D., and West, M. (1995). Bayesian density estimation and inference using mixtures. \emph{Journal of the American Statistical Association}, 90(430), 577-588.
 
 Knorr-Held, L. and Rue, H. (2003). On block updating in Markov random field models for disease mapping. \emph{Scandinavian Journal of Statistics}, 29, 597-614.
+
+Livingstone, S. and Zanella G. (2022). The Barker proposal: combining robustness and efficiency in gradient-based MCMC. \emph{Journal of the Royal Statistical Society: Series B (Statistical Methodology)}, 84(2): 496-523.
 
 Metropolis, N., Rosenbluth, A. W., Rosenbluth, M. N., Teller, A. H., and Teller, E. (1953). Equation of State Calculations by Fast Computing Machines. \emph{The Journal of Chemical Physics}, 21(6), 1087-1092.
 
@@ -470,7 +674,11 @@ Neal, R. M. (2000). Markov chain sampling methods for Dirichlet process mixture 
 
 Neal, R. M. (2003). Slice Sampling. \emph{The Annals of Statistics}, 31(3), 705-741.
 
-Pitt, M.K. and Shephard, N. (1999). Filtering via simulation: Auxiliary particle filters. \emph{Journal of the American Statistical Association} 94(446), 590-599.
+Neal, R. M. (2011). MCMC Using Hamiltonian Dynamics. \emph{Handbook of Markov Chain Monte Carlo}, CRC Press, 2011.
+
+Pitt, M. K. and Shephard, N. (1999). Filtering via simulation: Auxiliary particle filters. \emph{Journal of the American Statistical Association} 94(446), 590-599.
+
+Polson, N.G., Scott, J.G., and J. Windle. (2013). Bayesian inference for logistic models using \enc{Pólya}{Polya}-gamma latent variables. Journal of the American Statistical Association, 108(504), 1339–1349. https://doi.org/10.1080/01621459.2013.829001
 
 Roberts, G. O. and S. K. Sahu (1997). Updating Schemes, Correlation Structure, Blocking and Parameterization for the Gibbs Sampler. \emph{Journal of the Royal Statistical Society: Series B (Statistical Methodology)}, 59(2), 291-317.
 
@@ -481,6 +689,10 @@ Stan Development Team (2020). \emph{Stan Language Reference Manual, Version 2.22
 Tibbits, M. M.,  Groendyke, C.,  Haran, M., and Liechty, J. C. (2014).  Automated Factor Slice Sampling.  \emph{Journal of Computational and Graphical Statistics}, 23(2), 543-563.
 
 van Dyk, D.A. and T. Park. (2008). Partially collapsed Gibbs Samplers. \emph{Journal of the American Statistical Association}, 103(482), 790-796.
+
+Vogrinc, J., Livingstone, S., and Zanella, G. (2023). Optimal design of the Barker proposal and other locally balanced Metropolis–Hastings algorithms. \emph{Biometrika},  110(3): 579-595.
+
+Yu, Y. and Meng, X. L. (2011). To center or not to center: That is not the question - An ancillarity-sufficiency interweaving strategy (ASIS) for boosting MCMC efficiency. Journal of Computational and Graphical Statistics, 20(3), 531–570. https://doi.org/10.1198/jcgs.2011.203main
 }
 \seealso{
 \code{\link{configureMCMC}} \code{\link{addSampler}} \code{\link{buildMCMC}} \code{\link{runMCMC}}

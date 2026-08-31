@@ -7,6 +7,7 @@
 # if R/NIMBLE uses the same parameterization but in a different order, then one should define the reordering as a reparameterization (e.g., dbin())
 
 
+# See end for addition of buildDerivs field
 
 distributionsInputList <- list(
     
@@ -209,6 +210,15 @@ distributionsInputList <- list(
                                 'cov = calc_dmnormAltParams(cholesky, prec_param, 0)'),
                    types    = c('value = double(1)', 'mean = double(1)', 'cholesky = double(2)', 'prec = double(2)', 'cov = double(2)')),
     
+    dmnormAD = list(BUGSdist = 'dmnormAD(mean, prec, cov, inv_ld, prec_param)',
+                   Rdist    = c('dmnorm_inv_ld(mean, mat = cov, inv_ld = PDinverse_logdet(cov), prec_param = 0)',
+                                'dmnorm_inv_ld(mean, mat = prec, inv_ld = PDinverse_logdet(prec), prec_param = 1)'),
+                   altParams= c('prec = calc_dmnorm_inv_ld_AltParams(mat, inv_ld, prec_param, 1)',
+                                'cov = calc_dmnorm_inv_ld_AltParams(mat, inv_ld, prec_param, 0)'),
+                   mixedSizes = TRUE,
+                   types    = c('value = double(1)', 'mean = double(1)', 'inv_ld = double(1)',
+                                'prec = double(2)', 'cov = double(2)', 'mat = double(2)')),
+
     dmulti  = list(BUGSdist = 'dmulti(prob, size)',
                    Rdist    = 'dmulti(size, prob)',
                    types    = c('value = double(1)', 'prob = double(1)'),
@@ -233,7 +243,7 @@ distributionsInputList <- list(
                                 'dwish_chol(cholesky = chol(S), df, scale_param = 1)',
                                 'dwish_chol(cholesky, df, scale_param)'),
                    altParams= c('R = calc_dwishAltParams(cholesky, scale_param, 0)',
-                                 'S = calc_dwishAltParams(cholesky, scale_param, 1)'),
+                                'S = calc_dwishAltParams(cholesky, scale_param, 1)'),
                    alias    = 'dwishart',
                    types    = c('value = double(2)', 'R = double(2)', 'S = double(2)', 'cholesky = double(2)')),
 
@@ -241,10 +251,19 @@ distributionsInputList <- list(
                       Rdist    = c('dinvwish_chol(cholesky = chol(S), df, scale_param = 1)',
                                    'dinvwish_chol(cholesky = chol(R), df, scale_param = 0)'),
                       altParams= c('R = calc_dwishAltParams(cholesky, scale_param, 0)',
-                                    'S = calc_dwishAltParams(cholesky, scale_param, 1)'),
+                                   'S = calc_dwishAltParams(cholesky, scale_param, 1)'),
                       alias    = 'dinvwishart',
                       types    = c('value = double(2)', 'S = double(2)', 'R = double(2)', 'cholesky = double(2)'))
 )
 
+distsNotAllowedInAD <- c(
+  paste0('d', c('interval', 'constraint'))
+)
 
-
+# Add buildDerivs=TRUE to all distributions except distsNotAllowedInAD
+distributionsInputList <-
+  setNames(lapply(seq_along(distributionsInputList), function(i) {
+    this_name <- names(distributionsInputList)[i]
+    buildDerivs <- !(this_name %in% distsNotAllowedInAD)
+    c(distributionsInputList[[i]], list(buildDerivs=buildDerivs))
+  }), names(distributionsInputList))

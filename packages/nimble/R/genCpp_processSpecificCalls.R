@@ -8,15 +8,13 @@
 ####################################
 
 specificCallReplacements <- list(
-    '^' = 'pow',
+#    '^' = 'pow', # Has its own handler below
     '%%' = 'nimMod',
     length = 'size',
-    is.nan = 'ISNAN',
-    any_nan = 'ISNAN',
-    is.nan.vec = 'ISNAN',  ## retained for backward compatibility
-    is.na = 'ISNA',
-    any_na = 'ISNA',
-    is.na.vec = 'ISNA',    ## retained for backward compatibility
+    is.nan = 'nimIsNaN',
+    any_nan = 'nimAnyNaN',
+    is.na = 'nimIsNA',
+    any_na = 'nimAnyNA',
     lgamma = 'lgammafn',
     logfact = 'lfactorial',
     loggam = 'lgammafn',
@@ -38,12 +36,15 @@ specificCallHandlers = c(
          declare = 'declareHandler',
          min = 'minMaxHandler',
          max = 'minMaxHandler',
-         nimSvd = 'svdHandler'),
+         nimSvd = 'svdHandler',
+         pow = "powHandler",
+         '^' = "powHandler"),
     makeCallList(names(specificCallReplacements), 'replacementHandler'),
     makeCallList(c('nimNumeric', 'nimLogical', 'nimInteger', 'nimMatrix', 'nimArray'), 'nimArrayGeneralHandler' ),
-    makeCallList(c('dmnorm_chol', 'dmvt_chol', 'dlkj_corr_cholesky', 'dwish_chol', 'dinvwish_chol', 'dcar_normal', 'dcar_proper', 'dmulti', 'dcat', 'dinterval', 'ddirch'), 'dmFunHandler')
+    makeCallList(c('dmnorm_chol', 'dmnorm_inv_ld', 'dmvt_chol', 'dlkj_corr_cholesky', 'dwish_chol', 'dinvwish_chol', 'dcar_normal', 'dcar_proper', 'dmulti', 'dcat', 'dinterval', 'ddirch'), 'dmFunHandler')
          )
 specificCallHandlers[['rmnorm_chol']] <- 'rmFunHandler'
+specificCallHandlers[['rmnorm_inv_ld']] <- 'rmFunHandler'
 specificCallHandlers[['rmvt_chol']] <- 'rmFunHandler'
 specificCallHandlers[['rlkj_corr_cholesky']] <- 'rmFunHandler'
 specificCallHandlers[['rwish_chol']] <- 'rmFunHandler'
@@ -262,7 +263,7 @@ replacementHandler <- function(code, symTab) {
 }
     
 dmFunHandler <- function(code, symTab) {
-    if(code$name %in% c('dwish_chol', 'dinvwish_chol', 'dmnorm_chol', 'dmvt_chol'))
+    if(code$name %in% c('dwish_chol', 'dinvwish_chol', 'dmnorm_chol', 'dmnorm_inv_ld', 'dmvt_chol'))
         code$args$overwrite_inputs <- 0
     code$name <- paste0('nimArr_', code$name)
 }
@@ -296,5 +297,16 @@ mvAccessHandler <- function(code, symTab) {
     if(code$caller$caller$caller$name != '[') {
         insertExprClassLayer(code$caller$caller$caller, code$callerArgID, '[')
         code$caller$caller$caller$args[[2]] <- 1
+    }
+}
+
+powHandler <- function(code, symTab) {
+    code$name <- "pow"
+    if(length(code$args) == 2) {
+        if(is.numeric(code$args[[2]])) {
+            if(code$args[[2]] == round(code$args[[2]])) {
+                code$name <- "pow_int"
+            }
+        }
     }
 }

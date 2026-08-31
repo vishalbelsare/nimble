@@ -3,9 +3,7 @@ source(system.file(file.path('tests', 'testthat', 'test_utils.R'), package = 'ni
 RwarnLevel <- options('warn')$warn
 options(warn = 1)
 nimbleVerboseSetting <- nimbleOptions('verbose')
-nimbleOptions(verbose = FALSE)
-
-context("Testing of miscellaneous functionality")
+nimbleOptions(verbose = TRUE)
 
 ## Regression test for Issue #563.
 test_that("while() works even when an intermediate variable is needed", {
@@ -40,7 +38,7 @@ test_that("Test of full model check", {
         y ~ dnorm(mu, 1)
         mu ~ dnorm(0, 1)
     })
-    expect_output(m <- nimbleModel(code, data = list(y = 0), check = TRUE, name = 'test'),
+    expect_message(m <- nimbleModel(code, data = list(y = 0), check = TRUE, name = 'test'),
                    "NAs were detected")
 
     errmsg <- geterrmessage()    
@@ -260,13 +258,9 @@ test_that('is.na of scalar', {
             returnType(logical())
         })
     cnf <- compileNimble(nf)
-    for (x in c(0, 1, -Inf, Inf, NA, -1.234)) {
+    for (x in c(0, 1, -Inf, Inf, NA, NaN, -1.234)) {
         expect_identical(nf(x), cnf(x), info = paste('x =', x))
     }
-    
-    # Known failure https://github.com/nimble-dev/nimble/issues/487
-    x <- NaN
-    expect_failure(expect_identical(nf(x), cnf(x), info = paste('x =', x)))
 })
 
 test_that("pi case 1", {
@@ -283,8 +277,7 @@ test_that("pi case 1", {
     cnf <- compileNimble(nf)
     expect_equal(nf(), c(pi, 2*pi, 10.1), info = 'pi case 1 uncompiled')
     expect_equal(cnf(), c(pi, 2*pi, 10.1), info = 'pi case 1 compiled')
-    }
-)
+})
 
 test_that("pi case 2", {
     nf <- nimbleFunction(
@@ -298,8 +291,7 @@ test_that("pi case 2", {
     cnf <- compileNimble(nf)
     expect_equal(nf(), c(pi, 2*pi), info = 'pi case 1 uncompiled')
     expect_equal(cnf(), c(pi, 2*pi), info = 'pi case 1 compiled')
-    }
-)
+})
 
 test_that("pi case 3", {
     nf <- nimbleFunction(
@@ -314,8 +306,7 @@ test_that("pi case 3", {
     cnf <- compileNimble(nf)
     expect_equal(nf(), c(10.1, 20.2), info = 'pi case 1 uncompiled')
     expect_equal(cnf(), c(10.1, 20.2), info = 'pi case 1 compiled')
-    }
-)
+})
 
 ## From GitHub Issue #695
 test_that("setInits works in complicated case", {
@@ -328,11 +319,12 @@ test_that("setInits works in complicated case", {
     })
     inits = list(x = matrix(1:6, nrow = 2))
     data = list(x = matrix(c(100, NA, 100, NA, NA, NA), nrow = 2))
-    expect_warning(m <- nimbleModel(mc1,
+    expect_message(m <- nimbleModel(mc1,
                      constants = list(f = c(1, 2),
                                       n = 3),
                      data = data,
-                     inits = inits), "Ignoring non-NA values in inits")
+                     inits = inits), "Ignoring non-NA values in `inits`")
+
     ## This model defines x[1, 1], x[1, 2], x[1, 3], x[2, 2], and x[2, 3]. 
     ## x[2,1] is not a node in the model.
     ## data are provided for x[1, 1] and x[1, 2]
@@ -346,8 +338,35 @@ test_that("setInits works in complicated case", {
     ##[1,]  100  100    5
     ##[2,]    2    4    6
     expect_equal(m$x, matrix(c(100, 2, 100, 4, 5, 6), nrow = 2))
+    expect_identical(m$isDataEnv$'x', matrix(c(TRUE,FALSE,TRUE,FALSE,FALSE,FALSE),2))
+    expect_length(m$isData('x[2,1]'), 0)
 }
 )
+
+test_that("error trapping bad dimension size in setInits", {
+    code <- nimbleCode({
+        for(i in 1:3)
+            for(j in 1:3)
+                y[i,j]~dnorm(0,1)
+    })
+    m <- nimbleModel(code)
+    expect_message(m$setInits(list(y = rnorm(3))), "Incorrect size or dimension of initial value")
+
+    code <- nimbleCode({
+        for(i in 1:3)
+            for(j in 1:3)
+                y[i,j]~dnorm(0,1)
+    })
+    m <- nimbleModel(code, data = list(y = matrix(rnorm(9),3)))
+    expect_message(m$setInits(list(y = rnorm(3))), "Incorrect size or dimension of initial value")
+    
+    code <- nimbleCode({
+        for(i in 1:3)
+            for(j in 1:3)
+                y[i,j]~dnorm(0,1)
+    })
+    expect_error(m <- nimbleModel(code, inits = list(y = rnorm(3))), "inconsistent dimensionality")
+})
 
 test_that("missing return statement is trapped",
 {
@@ -359,6 +378,93 @@ test_that("missing return statement is trapped",
                                                 out <- rnorm(10, 0, 1)
                                             })}),
                  info = "error-trapping missing return statement")
+})
+
+test_that("nimbleCode combines multiple code objects", {
+  # Some objects containing code
+  c1 <- quote({x + 1})
+  c2 <- quote({
+    for (i in 1:2){
+      y <- i
+    }
+    z + 3
+  })
+  # Object not containing code
+  c3 <- "a"
+
+  # Check nimbleCode = quote when a single code block is provided
+  expect_equal(
+    nimbleCode({
+      for (i in 1:2){
+        y[i] ~ dnorm(0, sd = 1)
+      }
+    }),
+    quote({
+      for (i in 1:2){
+        y[i] ~ dnorm(0, sd = 1)
+      }
+    })
+  )
+
+  # Check combining code block with objects
+  expect_equal(
+    nimbleCode({
+      for (i in 1:2){
+        y[i] ~ dnorm(0, sd = 1)
+      }
+    }, c1, c2),
+    quote({
+      for (i in 1:2){
+        y[i] ~ dnorm(0, sd = 1)
+      }
+      x + 1
+      for (i in 1:2){
+        y <- i
+      }
+      z + 3
+    })
+  )
+
+  # Only code objects
+  expect_equal(
+    nimbleCode(c1, c2),
+    quote({
+      x + 1
+      for (i in 1:2){
+        y  <- i
+      }
+      z + 3
+    })
+  )
+
+  # Multiple code blocks
+  expect_equal(
+    nimbleCode({y+1}, {z+1}),
+    quote({
+      y + 1
+      z + 1
+    })
+  )
+
+  # Inside function
+  fun <- function(a){
+    nimbleCode(a)
+  }
+  expect_equal(nimbleCode(c1), fun(c1))
+
+  # Check error if non-bracketed code provided
+  expect_error(nimbleCode(y+1), "must be wrapped in brackets")
+  expect_error(nimbleCode(c1, y+1), "must be wrapped in brackets")
+
+  # Check error if object not containing code provided
+  expect_error(nimbleCode(c3), "does not contain valid code")
+  expect_error(nimbleCode({y+1}, c3), "does not contain valid code")
+  
+  # Check error if object doesn't exist
+  expect_error(nimbleCode(c1, c5), "not found")
+  
+  # Check error if no arguments provided
+  expect_error(nimbleCode(), "at least one argument")
 })
 
 options(warn = RwarnLevel)

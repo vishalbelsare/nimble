@@ -4,12 +4,11 @@ RwarnLevel <- options('warn')$warn
 options(warn = 1)
 
 nimbleVerboseSetting <- nimbleOptions('verbose')
-nimbleOptions(verbose = FALSE)
+nimbleOptions(verbose = TRUE)
 
 nimbleProgressBarSetting <- nimbleOptions('MCMCprogressBar')
 nimbleOptions(MCMCprogressBar = FALSE)
 
-context('Testing of BNP functionality')
 
 
 
@@ -1424,7 +1423,7 @@ test_that("sampleDPmeasure: testing that required variables in MCMC modelValues 
   
   mConf <- configureMCMC(m, monitors = c('xi', 'conc0', 'mu'))
   mMCMC <- buildMCMC(mConf)
-  expect_message(output <- runMCMC(mMCMC, niter=1))
+  expect_message(output <- runMCMC(mMCMC, niter=1), "Running an uncompiled")
   expect_silent(output <- getSamplesDPmeasure(mMCMC))
   
   ## cluster variable not being monitored
@@ -1452,7 +1451,7 @@ test_that("sampleDPmeasure: testing that required variables in MCMC modelValues 
   
   mConf <- configureMCMC(m, monitors = c('mu', 'xi', 'mu0', 's20'))
   mMCMC <- buildMCMC(mConf)
-  expect_message(output <- runMCMC(mMCMC, niter=1))
+  expect_message(output <- runMCMC(mMCMC, niter=1), "Running an uncompiled")
   expect_silent(output <- getSamplesDPmeasure(mMCMC))
   
   ## concentration parameter not being monitored:
@@ -1593,7 +1592,7 @@ test_that("check iid assumption in sampleDPmeasure", {
   m <- nimbleModel(code, data=Data, inits=Inits)
   cm <- compileNimble(m)
   mConf <- configureMCMC(m, monitors =  c('thetatilde', 'xi'))
-  expect_warning(mMCMC <- buildMCMC(mConf))
+  expect_message(mMCMC <- buildMCMC(mConf), "less than the number of potential clusters")
   cMCMC <- compileNimble(mMCMC, project = m) 
   cMCMC$run(1)
   expect_error(getSamplesDPmeasure(cMCMC),
@@ -1622,7 +1621,7 @@ test_that("check iid assumption in sampleDPmeasure", {
   m <- nimbleModel(code, data=Data, inits=Inits)
   cm <- compileNimble(m)
   mConf <- configureMCMC(m, monitors =  c('thetatilde', 's2tilde', 'xi'))
-  expect_warning(mMCMC <- buildMCMC(mConf))
+  expect_message(mMCMC <- buildMCMC(mConf), "The number of clusters")
   cMCMC <- compileNimble(mMCMC, project = m) 
   cMCMC$run(1, reset=FALSE) 
   expect_error(getSamplesDPmeasure(cMCMC),
@@ -1725,6 +1724,54 @@ test_that("check use of epsilon parameter in getSamplesDPmeasure", {
   if(.Platform$OS.type != "windows") {
       nimble:::clearCompiled(model)
   }
+})
+
+
+test_that("getSamplesDPmeasure handles change in size from tildeVars to use with data", {
+    code_bnp_mvn_reg = nimbleCode({
+        alpha  ~ dgamma(alpha_shape, alpha_rate)
+        z[1:n] ~ dCRP(alpha, size = n)
+        for ( k in 1:Kmax ) {
+            beta[1:pJ, k]      ~ dmnorm(beta_mean[1:pJ], cov = beta_cov[1:pJ, 1:pJ])
+            Sigma[1:J, 1:J, k] ~ dinvwish(S = Sigma_scale[1:J, 1:J], df = Sigma_df)
+        }
+        for ( i in 1:n ) {
+            mu[i, 1:J] <- X[id_start[i]:id_end[i], 1:pJ] %*% beta[1:pJ, z[i]]
+            y[id_start[i]:id_end[i]] ~ dmnorm(mu[i, 1:J], cov = Sigma[1:J, 1:J, z[i]])
+        }
+    })
+    pJ <- 7
+    J <- 3
+    n <- 20
+    Kmax <- 12
+
+    X <- matrix(rnorm(n*J*pJ), nrow = n*J)
+    id_start    = integer(n)
+    id_end      = integer(n)
+    id_start[1] = 1
+    id_end[1]   = J
+    for ( i in 2:n ) {
+        id_end[i]   = id_end[i-1] + J
+        id_start[i] = id_end[i] - (J-1)
+    }
+    constants <- list(pJ = pJ, J = J, n = n, Kmax = Kmax, id_start = id_start, id_end = id_end)
+   
+    data = list(y = rnorm(n*J), X = X)
+    Sigma <- array(0, c(J,J,Kmax))
+    for(i in 1:Kmax) Sigma[,,i] <- diag(J)
+    inits <- list(alpha = 2, z = rep(1, n), beta = matrix(rnorm(pJ*Kmax), nrow = pJ),
+                  Sigma = Sigma, beta_mean = rep(0, pJ), beta_cov = diag(pJ),
+                  Sigma_scale = diag(J), Sigma_df = 5, alpha_shape = 8, alpha_rate = 2)
+
+    model    <- nimbleModel(code_bnp_mvn_reg, constants, data, inits)
+    mcmcConf <- configureMCMC(model, monitors = c('alpha', 'beta', 'Sigma', 'z') )
+    cmodel   <- compileNimble(model)
+    mcmc     <- buildMCMC(mcmcConf)
+    cmcmc    <- compileNimble(mcmc, project = cmodel)
+    fit <- runMCMC(cmcmc, niter = 10, nburnin = 0)
+    fit_stick <- getSamplesDPmeasure(cmcmc)
+    expect_identical(length(fit_stick), 10L)
+    expect_identical(dim(fit_stick[[1]])[2], 1L+7L+9L)
 })
 
 
@@ -1933,7 +1980,7 @@ test_that("Test reset frunction in CRP sampler ", {
   m <- nimbleModel(code, data=Data, inits=Inits)
   cm <- compileNimble(m)
   mConf <- configureMCMC(m, monitors =  c('thetatilde',  'xi'))
-  expect_warning(mMCMC <- buildMCMC(mConf))
+  expect_message(mMCMC <- buildMCMC(mConf), "The number of clusters")
   cMCMC <- compileNimble(mMCMC, project = m) 
   expect_output(cMCMC$run(1), info='CRP_sampler: This MCMC is for a parametric model')
   cMCMC$run(1, reset=FALSE)
@@ -1962,7 +2009,7 @@ test_that("Test that not nonparametric MCMC message in CRP sampler is printed", 
   m <- nimbleModel(code, data=Data, inits=Inits)
   cm <- compileNimble(m)
   mConf <- configureMCMC(m, monitors =  c('thetatilde',  'xi'))
-  expect_warning(mMCMC <- buildMCMC(mConf))
+  expect_message(mMCMC <- buildMCMC(mConf), "The number of clusters")
   cMCMC <- compileNimble(mMCMC, project = m)
   expect_output(out <- runMCMC(mcmc=cMCMC, niter=1, nburnin = 0, thin=1),
                 'CRP_sampler: This MCMC is for a parametric model.')
@@ -1986,7 +2033,7 @@ test_that("Test that not nonparametric MCMC message in CRP sampler is printed", 
   m <- nimbleModel(code, data=Data, inits=Inits)
   cm <- compileNimble(m)
   mConf <- configureMCMC(m)
-  expect_warning(mMCMC <- buildMCMC(mConf))
+  expect_message(mMCMC <- buildMCMC(mConf), "The number of clusters")
   cMCMC <- compileNimble(mMCMC, project = m)
   expect_output(out <- runMCMC(mcmc=cMCMC, niter=1, nburnin = 0, thin=1),
                 'CRP_sampler: This MCMC is not for a proper model.')
@@ -2009,7 +2056,7 @@ test_that("Test that not nonparametric MCMC message in CRP sampler is printed", 
   m <- nimbleModel(code, data=Data, inits=Inits)
   cm <- compileNimble(m)
   mConf <- configureMCMC(m, monitors =  c('thetatilde',  'xi'))
-  expect_warning(mMCMC <- buildMCMC(mConf))
+  expect_message(mMCMC <- buildMCMC(mConf), "The number of clusters")
   cMCMC <- compileNimble(mMCMC, project = m) 
   expect_output(out <- runMCMC(cMCMC, niter=1, nburnin = 0, thin=1),
                 'CRP_sampler: This MCMC is for a parametric model.')
@@ -2032,7 +2079,7 @@ test_that("Test that not nonparametric MCMC message in CRP sampler is printed", 
   m <- nimbleModel(code, data=Data, inits=Inits)
   cm <- compileNimble(m)
   mConf <- configureMCMC(m, monitors =  c('thetatilde',  'xi'))
-  expect_warning(mMCMC <- buildMCMC(mConf))
+  expect_message(mMCMC <- buildMCMC(mConf), "The number of clusters")
   cMCMC <- compileNimble(mMCMC, project = m) 
   expect_output(out <- runMCMC(cMCMC, niter=1, nburnin = 0, thin=1),
                 'CRP_sampler: This MCMC is for a parametric model.')
@@ -2057,7 +2104,8 @@ test_that("Test that not nonparametric MCMC message in CRP sampler is printed", 
   mConf <- configureMCMC(m, monitors =  c('thetatilde',  'xi'))
   mMCMC <- buildMCMC(mConf)
   cMCMC <- compileNimble(mMCMC, project = m)
-  expect_silent(out <- runMCMC(cMCMC, niter=1, nburnin = 0, thin=1))  
+  expect_message(out <- runMCMC(cMCMC, niter=1, nburnin = 0, thin=1),
+                 "running chain")
   
   
   ## dirichlet-multinomial model, no message is sent when xi = 1:n
@@ -2248,7 +2296,7 @@ test_that("Testing conjugacy detection with models using CRP", {
                   inits = list(xi = rep(1,4), mu=rnorm(4)))
   conf <- configureMCMC(m)
   crpIndex <- which(sapply(conf$getSamplers(), function(x) x[['name']]) == 'CRP')
-  expect_warning(mcmc <- buildMCMC(conf), "sampler_CRP: The number of clusters based on the cluster parameters is less")
+  expect_message(mcmc <- buildMCMC(conf), "less than the number of potential clusters")
   expect_equal(class(mcmc$samplerFunctions[[crpIndex]]$helperFunctions$contentsList[[1]])[1], "CRP_conjugate_dnorm_dnorm")
   
   ## dnorm_dnorm one more level of hierarchy
@@ -2683,7 +2731,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   m <- nimbleModel(code, data = data, constants = const, inits = inits)
   conf <- configureMCMC(m)
   crpIndex <- which(sapply(conf$getSamplers(), function(x) x[['name']]) == 'CRP')
-  expect_warning(mcmc <- buildMCMC(conf), "less than the number of potential clusters")
+  expect_message(mcmc <- buildMCMC(conf), "less than the number of potential clusters")
   expect_equal(class(mcmc$samplerFunctions[[crpIndex]]$helperFunctions$contentsList[[1]])[1], "CRP_conjugate_dnorm_dnorm")
   clusterNodeInfo <- nimble:::findClusterNodes(m, target)
   expect_equal(TRUE, clusterNodeInfo$targetIsIndex)
@@ -2743,8 +2791,8 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   })
   m <- nimbleModel(code, data = data, constants = const, inits = inits2)
   conf <- configureMCMC(m)
+  mcmc <- buildMCMC(conf)
   crpIndex <- which(sapply(conf$getSamplers(), function(x) x[['name']]) == 'CRP')
-  expect_silent(mcmc <- buildMCMC(conf))
   expect_equal(class(mcmc$samplerFunctions[[crpIndex]]$helperFunctions$contentsList[[1]])[1], "CRP_conjugate_dnorm_dnorm")
   clusterNodeInfo <- nimble:::findClusterNodes(m, target)
   expect_equal(clusterNodeInfo$clusterNodes[[1]], paste0("muTilde[2, ", 1:n, "]"))
@@ -2896,7 +2944,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   })
   m <- nimbleModel(code, data = data, constants = const, inits = inits)
   conf <- configureMCMC(m)
-  expect_warning(mcmc <- buildMCMC(conf), "sampler_CRP: The number of clusters based on the cluster parameters is less")
+  expect_message(mcmc <- buildMCMC(conf), "less than the number of potential clusters")
   clusterNodeInfo <- nimble:::findClusterNodes(m, target)
   expect_equal(clusterNodeInfo$clusterNodes[[1]], paste0("muTilde[", 2:(n-2), "]"))
   expect_equal(1, clusterNodeInfo$numIndexes)
@@ -2918,7 +2966,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   m <- nimbleModel(code, data = data, constants = const, inits = inits)
   conf <- configureMCMC(m)
   crpIndex <- which(sapply(conf$getSamplers(), function(x) x[['name']]) == 'CRP')
-  expect_warning(mcmc <- buildMCMC(conf), "sampler_CRP: The number of clusters based on the cluster parameters is less")
+  expect_message(mcmc <- buildMCMC(conf), "less than the number of potential clusters")
   expect_equal(class(mcmc$samplerFunctions[[crpIndex]]$helperFunctions$contentsList[[1]])[1], "CRP_conjugate_dnorm_dnorm")
   clusterNodeInfo <- nimble:::findClusterNodes(m, target)
   expect_equal(clusterNodeInfo$clusterNodes[[1]], paste0("muTilde[", 2:(n-2), "]"))
@@ -2939,7 +2987,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
     {muTilde[i] ~ dnorm(0, 1)}
     z ~ dnorm(muTilde[1], 1)
   })
-  m <- nimbleModel(code, data = data, constants = const, inits = inits)
+  m <- nimbleModel(code, data = c(data, list(z = 0)), constants = const, inits = inits)
   conf <- configureMCMC(m)
   expect_error(mcmc <- buildMCMC(conf), "Only the variables being clustered")
 
@@ -2971,13 +3019,32 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
     xi[1:10] ~ dCRP(1 , size=10)
     tau ~ dnorm(muTilde[xi[1]], 1)
   })
-  Inits=list(xi=rep(1, 10), muTilde=rep(0,10), tau=1)
-  Data=list(y=rnorm(10,0, 1))
+  Inits=list(xi=rep(1, 10), muTilde=rep(0,10))
+  Data=list(y=rnorm(10,0, 1), tau=1)
   m <- nimbleModel(code, data=Data, inits=Inits)
   mConf <- configureMCMC(m)
   expect_error(mcmc <- buildMCMC(mConf),
                'sampler_CRP: Detected unusual indexing')
 
+  code=nimbleCode({
+    for(i in 1:10) {
+      muTilde[i] ~ dnorm(0, 1)  
+      mu[i] <- muTilde[xi[i]]
+      y[i] ~ dnorm(mu[i], 1)
+    }
+    xi[1:10] ~ dCRP(1 , size=10)
+    tau ~ dnorm(muTilde[xi[1]], 1)
+  })
+  Inits=list(xi=rep(1, 10), muTilde=rep(0,10))
+  Data=list(y=rnorm(10,0, 1))
+  m <- nimbleModel(code, data=Data, inits=Inits)
+  expect_error(mConf <- configureMCMC(m), "Discovered predictive node")
+  nimbleOptions(MCMCusePredictiveDependenciesInCalculations = TRUE)
+  mConf <- configureMCMC(m)
+  expect_error(mcmc <- buildMCMC(mConf),
+               'sampler_CRP: Detected unusual indexing')
+  nimbleOptions(MCMCusePredictiveDependenciesInCalculations = FALSE)
+  
   ## This is ok because y and x are same length.
   code <- nimbleCode({
     xi[1:n] ~ dCRP(alpha, n)
@@ -3026,8 +3093,8 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   inits2$muTilde <- rnorm(n+1)
   m <- nimbleModel(code, data = data, constants = const, inits = inits2)
   conf <- configureMCMC(m)
+  mcmc <- buildMCMC(conf)
   crpIndex <- which(sapply(conf$getSamplers(), function(x) x[['name']]) == 'CRP')
-  expect_silent(mcmc <- buildMCMC(conf))
   expect_equal(class(mcmc$samplerFunctions[[crpIndex]]$helperFunctions$contentsList[[1]])[1], "CRP_conjugate_dnorm_dnorm")
   clusterNodeInfo <- nimble:::findClusterNodes(m, target)
   expect_equal(clusterNodeInfo$clusterNodes[[1]], paste0("muTilde[", 1:n, "]"))
@@ -3255,7 +3322,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   m <- nimbleModel(code, data = data, constants = const, inits = inits)
   conf <- configureMCMC(m)
   crpIndex <- which(sapply(conf$getSamplers(), function(x) x[['name']]) == 'CRP')
-  expect_warning(mcmc <- buildMCMC(conf), "less than the number of potential clusters")
+  expect_message(mcmc <- buildMCMC(conf), "less than the number of potential clusters")
   expect_equal(class(mcmc$samplerFunctions[[crpIndex]]$helperFunctions$contentsList[[1]])[1], "CRP_conjugate_dnorm_invgamma_dnorm")
   clusterNodeInfo <- nimble:::findClusterNodes(m, target)
   expect_equal(clusterNodeInfo$clusterNodes[[2]], paste0("muTilde[", 1:(n-1), "]"))
@@ -3450,7 +3517,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   expect_identical(cn$numNodesPerCluster, as.integer(J))
   expect_silent(conf <- configureMCMC(model, print = FALSE))
   crpIndex <- which(sapply(conf$getSamplers(), function(x) x[['name']]) == 'CRP')
-  expect_warning(mcmc <- buildMCMC(conf), "is less than the number of potential")
+  expect_message(mcmc <- buildMCMC(conf), "is less than the number of potential")
   crpSampler <- mcmc$samplerFunctions[[crpIndex]]
   expect_equal(crpSampler$sampler, "CRP_conjugate_dnorm_dnorm")
   expect_identical(crpSampler$nObsPerClusID, J)
@@ -3491,7 +3558,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   expect_identical(cn$numNodesPerCluster, as.integer(J))
   expect_silent(conf <- configureMCMC(model, print = FALSE))
   crpIndex <- which(sapply(conf$getSamplers(), function(x) x[['name']]) == 'CRP')
-  expect_warning(mcmc <- buildMCMC(conf), "is less than the number of potential")
+  expect_message(mcmc <- buildMCMC(conf), "is less than the number of potential")
   crpSampler <- mcmc$samplerFunctions[[crpIndex]]
   expect_equal(crpSampler$sampler, "CRP_conjugate_dnorm_dnorm")
   expect_identical(crpSampler$nObsPerClusID, J)
@@ -4151,7 +4218,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   paramSamplers <- conf$getSamplers('thetaTilde')
   expect_identical(sapply(paramSamplers, function(x) x$name), rep('CRP_cluster_wrapper', n*J))
   ids <- sapply(paramSamplers, function(x) x$control$clusterID)
-  expect_identical(as.integer(ids), rep(1:n, J))
+  expect_identical(as.integer(ids), rep(1:n, each = J))
 
 
   ## Model H: separate obs and prior declarations
@@ -4344,15 +4411,15 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   expect_identical(cn$clusterNodes[[1]], c(t(array(nodes, c(n, 2, J))[,2,])))
   expect_identical(cn$numNodesPerCluster, as.integer(J))
   expect_silent(conf <- configureMCMC(model, print = FALSE))
+  mcmc <- buildMCMC(conf)
   crpIndex <- which(sapply(conf$getSamplers(), function(x) x[['name']]) == 'CRP')
-  expect_silent(mcmc <- buildMCMC(conf))
   crpSampler <- mcmc$samplerFunctions[[crpIndex]]
   expect_equal(crpSampler$sampler, "CRP_conjugate_dnorm_dnorm")
   expect_identical(crpSampler$nObsPerClusID, J)
   expect_identical(crpSampler$nIntermClusNodesPerClusID, as.integer(0))
   expect_identical(crpSampler$n, as.integer(n))
 
-  paramSamplers <- conf$getSamplers('thetaTilde')[16:30]
+  paramSamplers <- conf$getSamplers('thetaTilde')[seq(2, 30, by = 2)]
   expect_identical(sapply(paramSamplers, function(x) x$name), rep('CRP_cluster_wrapper', n*J))
   ids <- sapply(paramSamplers, function(x) x$control$clusterID)
   expect_identical(as.integer(ids), rep(1:n, each = J))
@@ -4614,7 +4681,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   paramSamplers <- conf$getSamplers('beta')
   expect_identical(sapply(paramSamplers, function(x) x$name), rep('CRP_cluster_wrapper', n*2))
   ids <- sapply(paramSamplers, function(x) x$control$clusterID)
-  expect_identical(as.integer(ids), rep(1:n, 2))
+  expect_identical(as.integer(ids), rep(1:n, each = 2))
 
 
   ## use of inprod
@@ -5159,9 +5226,6 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
 
 
   ## clusters not indep, with mv declaration - not allowed
-  ## errors when trying to wrap sampler because there is only
-  ## one cluster node. Might want have configureMCMC
-  ## give up on wrapping and then have error occur in buildMCMC().
   code <- nimbleCode({
       for(i in 1:4) 
           y[i] ~ dnorm(thetaTilde[xi[i]], 1)
@@ -5171,8 +5235,8 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   data = list(y = rnorm(4))
   inits = list(xi = rep(1,4), iden = diag(4))
   model <- nimbleModel(code, data = data, inits = inits)
-  expect_error(conf <- configureMCMC(model, print = FALSE),
-               "Cannot determine wrapped sampler for cluster parameter")
+  conf <- configureMCMC(model, print = FALSE)
+  expect_error(mcmc <- buildMCMC(conf), "must be part of conditionally independent nodes")
 
   ## clusters indep G0 but not IID
   code <- nimbleCode({
@@ -5594,7 +5658,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   paramSamplers <- conf$getSamplers(c('thetaTilde', 's2tilde'))
   expect_identical(sapply(paramSamplers, function(x) x$name), rep('CRP_cluster_wrapper', n*(J+1)))
   ids <- sapply(paramSamplers, function(x) x$control$clusterID)
-  expect_identical(as.integer(ids), c(1:n, rep(1:n, each = J)))
+  expect_identical(as.integer(ids), c(rep(1:n, each = J), 1:n))
 
 
   ## mutilde and s2tilde; not conjugate, case 2
@@ -6196,11 +6260,7 @@ test_that("Testing handling (including error detection) with non-standard CRP mo
   expect_silent(conf <- configureMCMC(model, print = FALSE))
   expect_error(mcmc <- buildMCMC(conf),
                "sampler_CRP: Detected use of multiple stochastic indexes of a variable")
-
-
 })
-
-
 
 ## simple tests of models
 
@@ -6474,8 +6534,7 @@ test_that("Testing of misspecification of dimension when using CRP", {
   m <- nimbleModel(code, data = list(y = rnorm(100)),
                    inits = list(xi = rep(1,100), mu=rnorm(50)))
   conf <- configureMCMC(m)
-  expect_warning(buildMCMC(conf),
-                 "sampler_CRP: The number of clusters based on the cluster parameters is less than the number of potential clusters")
+  expect_message(buildMCMC(conf), "less than the number of potential clusters")
   
   ## multiple tilde parameters
   code = nimbleCode({
@@ -6491,8 +6550,7 @@ test_that("Testing of misspecification of dimension when using CRP", {
   m <- nimbleModel(code, data = list(y = rnorm(100)),
                    inits = list(xi = rep(1,100), mu=rnorm(50), s2=rinvgamma(50,1,1)))
   conf <- configureMCMC(m)
-  expect_warning(buildMCMC(conf),
-                 "sampler_CRP: The number of clusters based on the cluster parameters is less than the number of potential clusters")
+  expect_message(buildMCMC(conf), "less than the number of potential clusters")
   
   ## multiple tilde parameters, one is common for every observation
   code = nimbleCode({
@@ -6539,7 +6597,7 @@ test_that("Testing of misspecification of dimension when using CRP", {
                    inits = list(xi = rep(1,100), mu=rnorm(3)))
   cm <- compileNimble(m)
   conf <- configureMCMC(m)
-  expect_warning(mMCMC <- buildMCMC(conf))
+  expect_message(mMCMC <- buildMCMC(conf))
   cmMCMC=compileNimble(mMCMC, project=m, resetFunctions=TRUE)
   set.seed(1)
   expect_output(cmMCMC$run(1), "CRP_sampler: This MCMC is for a parametric model")
@@ -7849,7 +7907,466 @@ test_that("offset and coeff set up in conjugacy for BNP so that non-dependencies
                 ls(mcmc$samplerFunctions[[2]]$regular_sampler[[1]]), c(FALSE, TRUE))
 })
 
+test_that("Only cluster hyperparameter dependents (cluster node parameters) in use are used in updating hyperparameters.", {
+
+    n <- 10
+    data = list(y = rnorm(n))
+    const = list(n = n, conc = 1)
+    inits = list(xi = sample(c(1,2,4), n, replace = TRUE),
+                 muTilde = rnorm(n),
+                 mu0 = 0.5)
+
+    ## Basic case
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, n)
+        for(i in 1:n) {
+            y[i] ~ dnorm(mu[i], var = 1)
+            mu[i] <- muTilde[xi[i]]
+        }
+        for(i in 1:n)
+            muTilde[i] ~ dnorm(mu0,1)
+        mu0 ~ dnorm(0, 1)
+    })
+    m <- nimbleModel(code, data = data, constants = const, inits = inits)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[1]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(mcmc$samplerFunctions[[wh]]$clusterIDs, as.numeric(1:n))
+    mcmc$samplerFunctions[[wh]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh]]$usedDeps),
+                     as.integer(sort(unique(m$xi))))
+ 
+    ## Truncated number of clusters.
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, n)
+        for(i in 1:n) {
+            y[i] ~ dnorm(mu[i], var = 1)
+            mu[i] <- muTilde[xi[i]]
+        }
+        for(i in 1:n2)
+            muTilde[i] ~ dnorm(mu0,1)
+        mu0 ~ dnorm(0, 1)
+    })
+    inits2 <- inits
+    n2 <- 5
+    const2 <- const
+    const2$n2 <- n2
+    inits2$muTilde <- rnorm(n2)
+    inits2$xi <- sample(c(1,3), n, replace = TRUE)
+    m <- nimbleModel(code, data = data, constants = const2, inits = inits2)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[1]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(mcmc$samplerFunctions[[wh]]$clusterIDs, as.numeric(1:n2))
+    mcmc$samplerFunctions[[wh]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh]]$usedDeps),
+                     as.integer(sort(unique(m$xi))))
+
+               
+    ## Could probably make this work with wrapping, but a corner case, with
+    ## three extra muTildes.
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, n)
+        for(i in 1:n) {
+            y[i] ~ dnorm(mu[i], var = 1)
+            mu[i] <- muTilde[xi[i]+3]
+        }
+        for(i in 1:(n+3))
+            muTilde[i] ~ dnorm(mu0,1)
+        mu0 ~ dnorm(0,1)
+    })
+    inits2 <- inits
+    inits2$muTilde <- rnorm(n+3)
+    m <- nimbleModel(code, data = data, constants = const, inits = inits2)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "conjugate_dnorm_dnorm_identity")
+    expect_identical(conf$getSamplers('muTilde[1]')[[1]]$name, "conjugate_dnorm_dnorm_identity_dynamicDeps")
+
+    ## muTildes indexing offset
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, n)
+        for(i in 1:n) {
+            y[i] ~ dnorm(mu[i], var = 1)
+            mu[i] <- muTilde[xi[i]+3]
+        }
+        for(i in 4:(n+3))
+            muTilde[i] ~ dnorm(mu0,1)
+        mu0 ~ dnorm(0,1)
+    })
+    inits2 <- inits
+    inits2$muTilde <- rnorm(n+3)
+    m <- nimbleModel(code, data = data, constants = const, inits = inits2)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[4]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(mcmc$samplerFunctions[[wh]]$clusterIDs, as.numeric(1:n))
+    mcmc$samplerFunctions[[wh]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh]]$usedDeps),
+                     as.integer(sort(unique(m$xi))))
+
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, n)
+        for(i in 1:n) {
+            y[i] ~ dnorm(mu[i], var = 1)
+            mu[i] <- muTilde[n-xi[i]+1]
+        }
+        for(i in 1:n)
+            muTilde[i] ~ dnorm(mu0,1)
+        mu0 ~ dnorm(0, 1)
+    })
+    m <- nimbleModel(code, data = data, constants = const, inits = inits)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[1]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(mcmc$samplerFunctions[[wh]]$clusterIDs, as.numeric(n:1))
+    mcmc$samplerFunctions[[wh]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh]]$usedDeps),
+                     as.integer(sort(n-unique(m$xi))+1))
+
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, size = n)
+        b0 ~ dgamma(0.5, 1)
+        k0 ~ dgamma(1.5, 7.5)
+        a0 ~ dgamma(1, 1)
+        for (i in 1:n) {
+            y[i] ~ dnorm(mu[i], tau[i])
+            mu[i] <- muTilde[xi[i]]
+            tau[i] <- tauTilde[xi[i]]
+            tau_muTilde[i] <- tauTilde[i] * k0
+            muTilde[i] ~ dnorm(0, tau_muTilde[i])
+            tauTilde[i] ~ dgamma(a0, b0)
+        }
+    })
+    inits2 <- list(b0 = 1, k0 = 1, a0 = 1, tauTilde = runif(n))
+    inits2 <- c(inits, inits2)
+    m <- nimbleModel(code, data = data, constants = const, inits = inits2)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('b0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('k0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('a0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[1]')[[1]]$name, "CRP_cluster_wrapper")
+    expect_identical(conf$getSamplers('tauTilde[1]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(length(wh), 3L)
+    expect_identical(mcmc$samplerFunctions[[wh[1]]]$clusterIDs, as.numeric(1:n))
+    expect_identical(mcmc$samplerFunctions[[wh[2]]]$clusterIDs, as.numeric(1:n))
+    expect_identical(mcmc$samplerFunctions[[wh[3]]]$clusterIDs, as.numeric(1:n))
+    
+    mcmc$samplerFunctions[[wh[1]]]$run()
+    mcmc$samplerFunctions[[wh[2]]]$run()
+    mcmc$samplerFunctions[[wh[3]]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh[1]]]$usedDeps),
+                     as.integer(sort(unique(m$xi))))
+    expect_identical(which(mcmc$samplerFunctions[[wh[2]]]$usedDeps),
+                     as.integer(sort(unique(m$xi))))
+    expect_identical(which(mcmc$samplerFunctions[[wh[3]]]$usedDeps),
+                     as.integer(sort(unique(m$xi))))
+
+    ## a0 affects two sets of clusterNodes; don't wrap anything
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, size = n)
+        b0 ~ dgamma(0.5, 1)
+        k0 ~ dgamma(1.5, 7.5)
+        a0 ~ dgamma(1, 1)
+        for (i in 1:n) {
+            y[i] ~ dnorm(mu[i], tau[i])
+            mu[i] <- muTilde[xi[i]]
+            tau[i] <- tauTilde[xi[i]]
+            tau_muTilde[i] <- tauTilde[i] * k0
+            muTilde[i] ~ dnorm(a0, tau_muTilde[i])
+            tauTilde[i] ~ dgamma(a0, b0)
+        }
+    })
+    inits2 <- list(b0 = 1, k0 = 1, a0 = 1, tauTilde = runif(n))
+    inits2 <- c(inits, inits2)
+    m <- nimbleModel(code, data = data, constants = const, inits = inits2)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('a0')[[1]]$name, "RW")
+    expect_identical(conf$getSamplers('b0')[[1]]$name, "conjugate_dgamma_dgamma_identity")
+    expect_identical(conf$getSamplers('k0')[[1]]$name, "conjugate_dgamma_dnorm_multiplicative")
+    expect_identical(conf$getSamplers('muTilde[1]')[[1]]$name, "conjugate_dnorm_dnorm_identity_dynamicDeps")
+    expect_identical(conf$getSamplers('tauTilde[1]')[[1]]$name, "conjugate_dgamma_dnorm_identity_dnorm_multiplicative_dynamicDeps")
+
+    ## mu0 affects something else - we could get this to work by splitting up calcNodesNoSelfStoch into
+    ## those that are cluster nodes and those that are not
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, n)
+        for(i in 1:n) {
+            y[i] ~ dnorm(mu[i], var = 1)
+            mu[i] <- muTilde[xi[i]]
+        }
+        for(i in 1:n)
+            muTilde[i] ~ dnorm(mu0,1)
+        mu0 ~ dnorm(0, 1)
+        z ~ dnorm(mu0, 1)
+    })
+    m <- nimbleModel(code, data = data, constants = const, inits = inits)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "conjugate_dnorm_dnorm_identity")
+    expect_identical(conf$getSamplers('muTilde[1]')[[1]]$name, "conjugate_dnorm_dnorm_identity_dynamicDeps")
+
+    ## membership affected by two dCRP variables, so hard to determine mu0 dependencies
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, n)
+        eta[1:n] ~ dCRP(conc, n)
+        for(i in 1:n) {
+            y[i] ~ dnorm(mu[xi[i]], var = 1)
+            z[i] ~ dnorm(mu[eta[i]], var = 1)
+        }
+        for(i in 1:n)
+            mu[i] ~ dnorm(mu0,1)
+        mu0 ~ dnorm(0, 1)
+    })
+    inits = c(inits, list(eta=rep(1,n)))
+    data=c(data, list(z = rnorm(n)))
+    m <- nimbleModel(code, data = data, constants = const, inits = inits)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "conjugate_dnorm_dnorm_identity")
+    expect_identical(conf$getSamplers('mu[1]')[[1]]$name, "conjugate_dnorm_dnorm_identity_dynamicDeps")
+
+
+    ## Tricky case where we don't see z as related to CRP
+    code <- nimbleCode({
+        xi[1:n] ~ dCRP(conc, n)
+        for(i in 1:n) {
+            eta[i] ~ dcat(p[1:10])
+            y[i] ~ dnorm(mu[xi[i]], var = 1)
+            z[i] ~ dnorm(mu[eta[i]], var = 1)
+        }
+        for(i in 1:n)
+            mu[i] ~ dnorm(mu0,1)
+        mu0 ~ dnorm(0, 1)
+    })
+    data=c(data, list(z = rnorm(n)))
+    inits = c(inits, list(eta=rep(1,n)))
+    m <- nimbleModel(code, data = data, constants = const, inits = inits)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "conjugate_dnorm_dnorm_identity")
+    expect_identical(conf$getSamplers('mu[1]')[[1]]$name, "conjugate_dnorm_dnorm_identity_dynamicDeps")
+
+    ## Various cases with multiple obs grouped in same cluster
+    n <- 5
+    J <- 3
+    constants <- list(n = n, J = J)
+    data <- list(y = matrix(rnorm(n*J),n,J))
+    inits <- list(alpha = 1, xi = c(2,1,1,4,1),
+                  muTilde = matrix(rnorm(J*n), n, J), mu0 = 0.5)
+
+    code <- nimbleCode({
+        for(i in 1:n) {
+            for(j in 1:J) {
+                y[i, j] ~ dnorm(muTilde[xi[i], j], 1)
+                muTilde[i, j] ~ dnorm(mu0, 1) 
+            }}
+        mu0 ~ dnorm(0,1)
+        xi[1:n] ~ dCRP(alpha, size = n)
+    })
+    m <- nimbleModel(code, data = data, constants = constants, inits = inits)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[1, 1]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(as.integer(mcmc$samplerFunctions[[wh]]$clusterIDs), rep(1:5, each = J))
+    mcmc$samplerFunctions[[wh]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh]]$usedDeps),
+                     which(mcmc$samplerFunctions[[wh]]$clusterIDs %in% m$xi))
+
+
+    ## monkey with ordering of muTildes
+    code <- nimbleCode({
+        for(j in 1:J) {
+            for(i in 1:n) {
+                y[i, j] ~ dnorm(muTilde[j, xi[i]], 1)
+                muTilde[j,i] ~ dnorm(mu0, 1) 
+            }}
+        mu0 ~ dnorm(0,1)
+        xi[1:n] ~ dCRP(alpha, size = n)
+    })
+    inits2 <- inits
+    inits2$muTilde <- matrix(inits$muTilde, J, n)
+    m <- nimbleModel(code, data = data, constants = constants, inits = inits2)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[1, 1]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(as.integer(mcmc$samplerFunctions[[wh]]$clusterIDs), rep(1:5, times = J))
+    mcmc$samplerFunctions[[wh]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh]]$usedDeps),
+                     which(mcmc$samplerFunctions[[wh]]$clusterIDs %in% m$xi))
+
+    code <- nimbleCode({
+        for(i in 1:n) {
+            for(j in 1:J) {
+                y[i, j] ~ dnorm(muTilde[n-xi[i]+1, j], 1)
+                muTilde[i, j] ~ dnorm(mu0, 1) 
+            }}
+        mu0 ~ dnorm(0,1)
+        xi[1:n] ~ dCRP(alpha, size = n)
+    })
+    m <- nimbleModel(code, data = data, constants = constants, inits = inits)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[1, 1]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(as.integer(mcmc$samplerFunctions[[wh]]$clusterIDs), rep(5:1, each = 3))
+    mcmc$samplerFunctions[[wh]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh]]$usedDeps),
+                     which(mcmc$samplerFunctions[[wh]]$clusterIDs %in% m$xi))
+
+    code <- nimbleCode({
+        for(i in 1:n) {
+            for(j in 1:J)
+                y[i,j] ~ dnorm(muTilde[xi[i],j], 1)
+            muTilde[i, 1:J] ~ dmnorm(mn[1:J], iden[1:J,1:J])
+        }
+        mn[1:J] <- mu0*z[1:J]
+        mu0 ~ dnorm(0, 1)
+        xi[1:n] ~ dCRP(alpha, size = n)
+    })
+    inits2 <- c(inits, list(z = rep(0, J), iden = diag(J), mn = rnorm(J)))
+    m <- nimbleModel(code, data = data, constants = constants, inits = inits2)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mu0')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[1, 1]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(as.integer(mcmc$samplerFunctions[[wh]]$clusterIDs), 1:5)
+    mcmc$samplerFunctions[[wh]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh]]$usedDeps),
+                     which(mcmc$samplerFunctions[[wh]]$clusterIDs %in% m$xi))
+
+    code <- nimbleCode({
+        for(i in 1:n) {
+            for(j in 1:J)
+                y[i,j] ~ dnorm(muTilde[xi[i],j], 1)
+            muTilde[i, 1:J] ~ dmnorm(mn[1:J], iden[1:J,1:J])
+        }
+        for(j in 1:J)
+            mn[j] ~ dnorm(0,1)
+        xi[1:n] ~ dCRP(alpha, size = n)
+    })
+    m <- nimbleModel(code, data = data, constants = constants, inits = inits2)
+    conf <- configureMCMC(m)
+    expect_identical(conf$getSamplers('mn[1]')[[1]]$name, "slice_CRP_base_param")
+    expect_identical(conf$getSamplers('muTilde[1, 1]')[[1]]$name, "CRP_cluster_wrapper")
+    mcmc <- buildMCMC(conf)
+    wh <- which(sapply(conf$getSamplers(), function(x) x$name) == 'slice_CRP_base_param')
+    expect_identical(as.integer(mcmc$samplerFunctions[[wh[1]]]$clusterIDs), 1:5)
+    expect_identical(as.integer(mcmc$samplerFunctions[[wh[2]]]$clusterIDs), 1:5)
+    expect_identical(as.integer(mcmc$samplerFunctions[[wh[3]]]$clusterIDs), 1:5)
+    mcmc$samplerFunctions[[wh[1]]]$run()
+    ## Check that deps flagged as used are same as those in 'xi'
+    expect_identical(which(mcmc$samplerFunctions[[wh[1]]]$usedDeps),
+                     which(mcmc$samplerFunctions[[wh[1]]]$clusterIDs %in% m$xi))
+    
+
+})
+
+test_that("Underflow leading to numerical problems handled", {
+    set.seed(1)
+
+    code <- nimbleCode({
+        z[1:N] ~ dCRP(conc = gamma, size = N)
+        
+        for(c in 1:K) {
+            lambda[c] ~ dexp(1.0)
+            alpha[c] ~ dexp(lambda[c])
+            mu[c] ~ dexp(1.0)
+
+                                        #for(k in 1:2)
+                                        #    mu_vec[c,k] <- mu[c]
+            mu_vec[c,1:2] <- rep(mu[c], times=2)
+            
+            beta[c,1:2] ~ ddirch(mu_vec[c,1:2])
+        }
+        
+        for (i in 1:N) {
+            ab[i,1:2] <- alpha[z[i]]*beta[z[i],1:2]
+            theta[i,1:2] ~ ddirch(ab[i,1:2])
+            y[i,1:2] ~ dmulti(prob=theta[i,1:2], size=n_i[i])
+        }
+    })
+
+    y <- matrix(c(1,2,2,1,1,1), ncol = 2)
+    n <- c(2,3,3)
+    N <- nrow(y)
+    
+    consts <- list(N = N,
+                   K = N,
+                   gamma = 1)
+    data <- list(y = y, n_i = n)
+
+    inits <- list(lambda = rep(rexp(n=1, rate=1), N),
+                  mu = rep(rexp(n=1, rate=1), N),
+                  z = rep(1, N))
+    inits$alpha <- rep(rexp(n=1, rate=inits$lambda), N)
+    inits$mu_vec <- matrix(rep(inits$mu[1], N*2), nrow = N, ncol = 2)
+    inits$beta <-  matrix(rep(rdirch(n=1, alpha=rep(inits$mu[1], 2)), N), nrow = N, ncol = 2, byrow=TRUE)
+    inits$theta <- matrix(rep(rdirch(n=1, alpha=inits$alpha[1]*inits$beta[1,]), N), nrow = N, ncol = 2, byrow=TRUE)
+
+    m <- nimbleModel(code, constants = consts, data = data, inits =inits)
+    cm <- compileNimble(m)
+
+    mcmc <- buildMCMC(m)
+    cmcmc <- compileNimble(mcmc,project = m)
+    expect_silent(cmcmc$run(50000))   # Before CRP robustification, this would seg fault.
+
+    
+    ## Error trap multiple -Inf values.
+
+    y <- cbind(c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,2,2,3,3,3,2,15,39,62,82,106,2,10,23,27,31,36,2,4,6,9,11,1,8,14,17,22,1,1,1,1,2,2,2,2,2,2,2,3,3,4,1,5,6,11),
+               c(5,9,11,16,16,3,4,6,6,6,1,1,1,1,1,1,2,1,1,1,1,1,1,0,2,2,2,2,1,5,11,12,13,16,1,18,27,31,33,44,1,5,9,11,15,17,1,3,3,4,5,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0))
+    n <- c(5,9,11,16,16,3,4,6,6,6,1,1,1,1,1,1,2,1,1,1,1,1,1,1,3,3,3,3,2,7,13,15,16,19,3,33,66,93,115,150,3,15,32,38,46,53,3,7,9,13,16,2,9,15,18,23,1,1,1,1,2,2,2,2,2,2,2,3,3,4,1,5,6,11)
+
+    N <- nrow(y)
+    
+    consts <- list(N = N,
+                   K = N,
+                   gamma = 1)
+    data <- list(y = y, n_i = n)
+
+    inits <- list(lambda = rep(rexp(n=1, rate=1), N),
+                  mu = rep(rexp(n=1, rate=1), N),
+                  z = rep(1, N))
+    inits$alpha <- rep(rexp(n=1, rate=inits$lambda), N)
+    inits$mu_vec <- matrix(rep(inits$mu[1], N*2), nrow = N, ncol = 2)
+    inits$beta <-  matrix(rep(rdirch(n=1, alpha=rep(inits$mu[1], 2)), N), nrow = N, ncol = 2, byrow=TRUE)
+    inits$theta <- matrix(rep(rdirch(n=1, alpha=inits$alpha[1]*inits$beta[1,]), N), nrow = N, ncol = 2, byrow=TRUE)
+
+    m <- nimbleModel(code, constants = consts, data = data, inits =inits)
+    cm <- compileNimble(m)
+
+    mcmc <- buildMCMC(m)
+    cmcmc <- compileNimble(mcmc,project = m)
+    set.seed(1)
+    expect_output(cmcmc$run(1000), "sampler encountered values of infinity")   # Before CRP robustification, this would seg fault.
+})
+
+
+
 options(warn = RwarnLevel)
 nimbleOptions(verbose = nimbleVerboseSetting)
 nimbleOptions(MCMCprogressBar = nimbleProgressBarSetting)
+
 

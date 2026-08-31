@@ -6,7 +6,7 @@
 require(nimble)
 ``` 
 
-# Writing nimbleFunctions to interact with models {#cha:progr-with-models}
+# Writing nimbleFunctions to interact with models {#cha-progr-with-models}
 
 ```{r, echo=FALSE}
 read_chunk(file.path('chunks', 'programmingWithModels_chunks.R')) 
@@ -34,7 +34,7 @@ are two kinds of code and two steps of execution:
   as its name implies, sets up information for run-time code.  It is
   executed in R, so it can use any aspect of R.
   1. *Run* code is provided in the NIMBLE language, which was
-  introduced in Chapter \@ref(cha:RCfunctions).  This is
+  introduced in Chapter \@ref(cha-RCfunctions).  This is
   similar to a narrow subset of R, but it is important to remember
   that it is different -- defined by what can be compiled -- and much more limited.  *Run* code can
   use the objects created by the *setup* code.  In addition,
@@ -187,7 +187,7 @@ anywhere in the setup code.
 
 ## Writing run code {#sec:nimble-lang-comp}
 
-In Chapter \@ref(cha:RCfunctions) we described the functionality of the NIMBLE language that could be used in run code without setup code (typically in cases where no models or modelValues are needed).   Next we explain the additional features that allow use of models and modelValues in the run code. 
+In Chapter \@ref(cha-RCfunctions) we described the functionality of the NIMBLE language that could be used in run code without setup code (typically in cases where no models or modelValues are needed).   Next we explain the additional features that allow use of models and modelValues in the run code. 
 
 ### Driving models: *calculate*, *calculateDiff*, *simulate*, *getLogProb* {#sec:driv-models:-calc}
 
@@ -197,7 +197,7 @@ for `getLogProb`, it is usually important for the `nodes`
 vector to be sorted in
 topological order.  Model member functions such as `getDependencies` and
 `expandNodeNames` will
-always return topoligically sorted node names.
+always return topologically sorted node names.
 
 Most R-like indexing of a node vector is allowed within the
 argument to `calculate`, `calculateDiff`, `simulate`, and `getLogProb`. For example, all of the following are allowed:
@@ -230,7 +230,7 @@ subsets of nodes, or variables.  Note the following:
 
    - In `model[[v]]`, `v` can only be a single node or variable name, not a vector of multiple nodes nor an element of such a vector (`model[[ nodes[i] ]]` does not work).  The node itself may be a vector, matrix or array node.
    - In fact, `v` can be a node-name-like character string, even if it is not actually a node in the model.  See example 4 in the code below.
-   - One can also use `model$varName`, with the caveat that `varName` must be a variable name.  This usage would only make sense for a nimbleFunction written for models known to have a specific variable.  (Note that if `a` is a scalar node in `model`, then `model[['a']]` will be a scalar but `model$a` will be a vector of length -)
+   - One can also use `model$varName`, with the caveat that `varName` must be a variable name.  This usage would only make sense for a nimbleFunction written for models known to have a specific variable.  (Note that if `a` is a scalar node in `model`, then `model[['a']]` will be a scalar but `model$a` will be a vector of length 1.
    - one should use the `<<-` global assignment operator to assign into model nodes. 
 
 
@@ -573,7 +573,7 @@ my_RW <- nimbleFunction(
 
 The name of this sampler function, for the purposes of using it in an  
 MCMC algorithm, is `my_RW`.  Thus, this sampler can be added 
-to an exisiting MCMC configuration object `conf` using:
+to an existing MCMC configuration object `conf` using:
 
 ```{r, custom-sampler-add, eval=FALSE}
 mcmcConf$addSampler(target = 'x', type = 'my_RW',
@@ -614,7 +614,30 @@ If you define it in a function (which would generally be the case if you are usi
 ```{r, eval=FALSE}
 assign('sampler_yourSampler', sampler_yourSampler, envir = .GlobalEnv)
 ```
-        
+
+### User-defined samplers and posterior predictive nodes
+
+As of version 0.13.0, NIMBLE's handling of posterior predictive nodes in MCMC sampling has changed in order to improve MCMC mixing. Samplers for nodes that are not posterior predictive nodes no longer condition on the values of the posterior predictive nodes. This is done by two changes:
+
+ - turning off posterior predictive nodes as dependencies in the use of `getDependencies` when building an MCMC, and
+ - moving all posterior predictive samplers to be last in the order of samplers used in an MCMC iteration.
+ 
+The first change calls for careful consideration when writing new samplers. It is done by making `buildMCMC` set a NIMBLE system option (described below) that tells `getDependencies` to ignore posterior predictive nodes (defined as nodes that are themselves not data and have no data nodes in their entire downstream (descendant) dependency network) before it builds the samplers (i.e., runs the setup code of each sampler). That way, the setup code of all samplers that use `getDependencies` will automatically comply with the new system.
+
+User-defined samplers that determine dependencies using `getDependencies` should automatically work in the new system (although it is worth checking). However if a user-defined sampler manually specifies dependencies, and if those dependencies include posterior predictive nodes, the MCMC results could be incorrect. Whether incorrect results occur could depend on other parts of the model structure connected to node(s) sampled by the user-defined sampler (i.e., the target node(s)) and/or posterior predictive nodes. Therefore, it is strongly recommended that all user-defined samplers rely on `getDependencies` to determine which nodes depend on the target node(s).
+
+There are several new NIMBLE system options available to take control of the behavior just described.
+
+ - `getDependenciesIncludesPredictiveNodes` determines whether posterior predictive nodes are included in results of `getDependencies`. This defaults to `TRUE`, so that outside of building samplers, the behavior of `getDependencies` should be identical to previous versions of NIMBLE.
+ - `MCMCusePredictiveDependenciesInCalculations` gives the value to which   
+   `getDependenciesIncludesPredictiveNodes` will be set while building samplers. This defaults to `FALSE`.
+ - `MCMCorderPosteriorPredictiveSamplersLast` determines whether posterior predictive samplers are moved to the end of the sampler list. This default to `TRUE`. Behavior prior to version 0.13.0 corresponds to `FALSE`.
+
+Here are some examples of how to use these options:
+
+ - If you want to have MCMC samplers condition on posterior predictive nodes, do `nimbleOptions(MCMCusePredictiveDependenciesInCalculations = TRUE)`.
+ - If you want to get identical MCMC samplers, including their ordering, as in versions prior to 0.13.0, do `nimbleOptions(MCMCusePredictiveDependenciesInCalculations = TRUE)` and `nimbleOptions(MCMCorderPosteriorPredictiveSamplersLast = FALSE)`.
+ - If you want to experiment with the behavior of `getDependencies` when ignoring posterior predictive nodes, do `nimbleOptions(getDependenciesIncludesPredictiveNodes = FALSE)`.
         
 ## Copying nimbleFunctions (and NIMBLE models)
 
@@ -700,13 +723,13 @@ print(myMicroBenchmark(100000))
 
 Sometimes it is useful to clear all the compiled objects from a
 project and unload the shared library produced by your C++ compiler.
-To do so, you can use `nimble:::clearCompiled(obj)` where `obj` is a
+To do so, you can use `clearCompiled(obj)` where `obj` is a
 compiled object such as a compiled model or nimbleFunction (e.g., a
 compiled MCMC algorithm).  This will clear *all* compiled objects
 associated with your NIMBLE project.  For example, if `cModel` is a
-compiled model, `nimble:::clearCompiled(cModel)` will clear both the
+compiled model, `clearCompiled(cModel)` will clear both the
 model and all associated nimbleFunctions such as compiled MCMCs that
-use that model.  Be careful, use of `nimble:::clearCompiled` can be
+use that model.  Be careful, use of `clearCompiled` can be
 dangerous.  There is some risk that if you have copies of the R
 objects that interfaced to compiled C++ objects that have been
 removed, and you attempt to use those R objects after clearing their
@@ -724,7 +747,7 @@ controlled via `nimbleOptions`.
 As noted above, the option
 `buildInterfacesForCompiledNestedNimbleFunctions` defaults to FALSE,
 which means NIMBLE will not build full interfaces to compiled
-nimbleFunctions that ony appear within other nimbleFunctions.  If you
+nimbleFunctions that only appear within other nimbleFunctions.  If you
 want access to all such nimbleFunctions, use the option
 `buildInterfacesForCompiledNestedNimbleFunctions = TRUE`.  This will
 use more memory but can be useful for debugging.

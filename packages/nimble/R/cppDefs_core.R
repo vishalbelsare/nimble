@@ -77,7 +77,8 @@ cppNamespace <- setRefClass('cppNamespace',
 nimbleCppInheritanceInfo <- list(
     Values = c('NamedObjects'),
     ModelBase = c('NamedObjects'),
-    nodeFun = c('NamedObjects')
+    nodeFun = c('NamedObjects'),
+    derivNodeFun = c('nodeFun')
 )
 
 ## C++ class object.
@@ -186,7 +187,7 @@ cppClassDef <- setRefClass('cppClassDef',
                                                            i = 0:(length(SallinheritanceNames)))
                                    packListLines <- cppLiteral(packListLines)
                                    
-                                   notificationLine <- if(nimbleOptions()$messagesWhenBuildingOrFinalizingCppObjects)
+                                   notificationLine <- if(getNimbleOption('messagesWhenBuildingOrFinalizingCppObjects'))
                                                            paste0('std::cout<< \"In generator for ', name, '. Created at pointer \" << newObj << \"\\n\";')
                                                        else character(0)
                                    if(is.null(finalizer)) finalizer <- paste0(name,'_Finalizer')
@@ -206,7 +207,7 @@ cppClassDef <- setRefClass('cppClassDef',
                                buildSEXPfinalizer = function() {
                                    CBobjectDefs <- list(cppVar(name = 'oldObj', baseType = name, ptr = 1))
                                    inputArgs <- list(cppSEXP(name = 'Sv'))
-                                   notificationLine <- if(nimbleOptions()$messagesWhenBuildingOrFinalizingCppObjects)
+                                   notificationLine <- if(getNimbleOption('messagesWhenBuildingOrFinalizingCppObjects'))
                                        paste0('std::cout<< \"In finalizer for ', name, ' with pointer \" << R_ExternalPtrAddr(Sv) << \"\\n\";')
                                    else character(0)
                                    castLine <- paste0('oldObj = static_cast<',name,' *>(R_ExternalPtrAddr(Sv));')
@@ -222,6 +223,26 @@ cppClassDef <- setRefClass('cppClassDef',
                                )
                            )
 
+stripUnusedTypeDefs <- function(cppOutput) {
+  cppOrigOutput <- cppOutput
+  ans <- try({
+    cppOutput <- unlist(cppOutput)
+    typeDefLines <- grep("^typedef", cppOutput)
+    lines_to_remove <- integer()
+    for(i in typeDefLines) {
+      pieces <- strsplit(cppOutput[typeDefLines[i]], ' ')[[1]]
+      typedef_name <- pieces[length(pieces)]
+      typedef_name <- gsub(";","",typedef_name)
+      i_typedef_name <- grep(typedef_name, cppOutput)
+      if(length(i_typedef_name)==1 && i_typedef_name[1]==i) {
+        lines_to_remove <- c(lines_to_remove, i)
+      }
+    }
+    if(length(lines_to_remove)>0) cppOutput<-cppOutput[-lines_to_remove]
+    cppOutput
+  })
+  if(inherits(ans, 'try-error')) cppOrigOutput else ans
+}
 
 ## A cppCodeBlock is an arbitrary collection of parse tree and other cppCodeBlocks (defined below)
 ## The parse tree can be either an R parse tree or one of our exprClass objects
@@ -230,6 +251,19 @@ cppCodeBlock <- setRefClass('cppCodeBlock',
                                           cppADCode = 'ANY', generatorSymTab = 'ANY'),
                             methods = list(
                                 generate = function(indent = '', ...) {
+                                    ## TRUE was an original possible value.
+                                    ## It was deprecated for the new value, 2L.
+                                    ## This originally was version 2. Now it is the version.
+                                    ## if(isTRUE(cppADCode)){
+                                    ##     oldCppADCode <- nimbleUserNamespace$cppADCode
+                                    ##     nimbleUserNamespace$cppADCode <- TRUE
+                                    ##     on.exit(nimbleUserNamespace$cppADCode <- oldCppADCode)
+                                    ## }
+                                    if(identical(cppADCode, 2L)){
+                                        oldCppADCode <- nimbleUserNamespace$cppADCode
+                                        nimbleUserNamespace$cppADCode <- 2L
+                                        on.exit(nimbleUserNamespace$cppADCode <- oldCppADCode)
+                                    }
                                     if(inherits(typeDefs, 'uninitializedField')) typeDefs <<- list()
                                     typeDefsToUse <- if(inherits(typeDefs, 'symbolTable')) typeDefs$symbols else typeDefs
                                     if(length(typeDefsToUse) > 0) {
@@ -245,12 +279,12 @@ cppCodeBlock <- setRefClass('cppCodeBlock',
                                         if(inherits(generatorSymTab, 'symbolTable')) useSymTab <- generatorSymTab
                                         else if(!inherits(objectDefs, 'symbolTable')) stop('Error, with exprClass code in the cppCodeBlock, must have objectDefs be a symbolTable')
                                         else useSymTab <- objectDefs
-                                        if(identical(cppADCode, TRUE)) recurseSetCppADExprs(code, TRUE) 
-                                      outputCppCode <- c(outputCppCode, nimGenerateCpp(code, useSymTab, indent = ' ', showBracket = FALSE))
-                                        if(identical(cppADCode, TRUE)) recurseSetCppADExprs(code, FALSE) 
+                                        outputCppCode <- c(outputCppCode, nimGenerateCpp(code, useSymTab, indent = ' ', showBracket = FALSE))
                                     } else {
                                         outputCppCode <- c(outputCppCode, outputCppParseTree2(code, indent))
                                     }
+                                    if(isTRUE(getNimbleOption("stripUnusedTypeDefs")))
+                                       outputCppCode <- stripUnusedTypeDefs(outputCppCode)
                                     outputCppCode
                                   }
                                 )
@@ -296,12 +330,15 @@ cppFunctionDef <- setRefClass('cppFunctionDef',
                                           }
                                            return(outputCode) 
                                       } else {
-                                          if(inherits(code$code, 'uninitializedField')) {
+                                          code_is_empty <- inherits(code$code, 'uninitializedField')
+                                          if(code_is_empty) {
                                               ## There is no code. This can occur for a nimbleFunctionVirtual, which is an abstract base class.
-                                              return(character(0))
+                                              if(abstract)
+                                                  return(character(0))
                                           }
-                                          c(paste(generateFunctionHeader(returnType, name, argsToUse, scopes, template, static = FALSE, ...), if(const) ' const ' else character(0), '{'),
-                                            code$generate(...),
+                                          c(paste(generateFunctionHeader(returnType, name, argsToUse, scopes, template, static = FALSE, ...),
+                                                  if(const) ' const ' else character(0), '{'),
+                                            if(!code_is_empty) code$generate(...) else '',
                                             list('}'))
                                       }
                                   }

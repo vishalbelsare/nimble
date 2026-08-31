@@ -1,11 +1,13 @@
+## Note 6/15/22: This test file is passing when run in a fresh R session.
+##  I am observing failures when run individually after others have been run.
+##  E.g. test_package("nimble", filter = "^getParam$")
+##  I have not tracked down why this would occur.  Modifications in nimbleUserNamespace might be a reason.
 source(system.file(file.path('tests', 'testthat', 'test_utils.R'), package = 'nimble'))
 
 RwarnLevel <- options('warn')$warn
 options(warn = 1)
 nimbleVerboseSetting <- nimbleOptions('verbose')
 nimbleOptions(verbose = FALSE)
-
-context("Testing of getParam")
 
 
 test_getParam(quote(dbern(prob = 0.2)))
@@ -156,7 +158,7 @@ test_that("Testing invalid parameter name in getParam", {
 
 test_that('getParam, user-defined integer-valued', {
     dtest <- nimbleFunction(
-        run = function(x = integer(0), thetaInt = integer(0), thetaDbl = double(0), log = integer(0, default = 0)) {
+        run = function(x = double(0), thetaInt = integer(0), thetaDbl = double(0), log = integer(0, default = 0)) {
             returnType(double(0))
             return(0)
         })
@@ -295,6 +297,52 @@ test_that("getParam works in various multi-instance combinations", {
   expect_identical(gsp5_1$run(), cgsp5$gsp5_1$run()) ## Failure in 0.10-0
   expect_identical(gsp5_2$run(), cgsp5$gsp5_2$run())
 })
+
+test_that("error trap indexing in param argument of getParam", {
+
+    nf <- nimbleFunction(
+        setup = function(model) {
+            i <- 2
+            params <- c('mean','sd')
+        },
+        run = function() {
+            returnType(double(0))
+            tmp <- model$getParam('y', params[i])
+            return(tmp)
+        })
+
+    code <- nimbleCode({
+        y ~ dnorm(0, 1)
+    })
+    m <- nimbleModel(code)
+    rnf <- nf(m)
+    cm <- compileNimble(m)
+    ## Should succeed as `i` in setup.
+    cnf <- compileNimble(rnf, project = m)
+
+    # or i in global; or i in run
+   nf <- nimbleFunction(
+        setup = function(model) {
+             params <- c('mean','sd')
+        },
+        run = function() {
+            i <- 2
+            returnType(double(0))
+            tmp <- model$getParam('y', params[i])
+            return(tmp)
+        })
+
+    code <- nimbleCode({
+        y ~ dnorm(0, 1)
+    })
+    m <- nimbleModel(code)
+    rnf <- nf(m)
+    cm <- compileNimble(m)
+    expect_error(cnf <- compileNimble(rnf, project = m),
+                 "contains variables not found in setup")
+
+})
+
 
 options(warn = RwarnLevel)
 nimbleOptions(verbose = nimbleVerboseSetting)

@@ -3,9 +3,7 @@ source(system.file(file.path('tests', 'testthat', 'test_utils.R'), package = 'ni
 RwarnLevel <- options('warn')$warn
 options(warn = 1)
 nimbleVerboseSetting <- nimbleOptions('verbose')
-nimbleOptions(verbose = FALSE)
-
-context("Testing of NIMBLE model building and operation")
+nimbleOptions(verbose = TRUE)
 
 ## If you do *not* want to write to results files
 ##    comment out the sink() call below.  And consider setting verbose = FALSE 
@@ -272,15 +270,14 @@ K <- length(alpha)
 p <- matrix(0, g, K)
 y <- array(0, c(m, g, K))
 
-if(require(nimble)) {
-    for(i in seq_len(g))
-        p[i, ] <- rdirch(1, alpha)
-} else {
-    p[1,]  <- c(.12, .24, .10, .53, .01)
-    p[2,]  <- c(.2, .3, .05, .2, .25)
-    p[3,]  <- c(.05, .05, .10, .3, .5)
-    rmulti <- rmultinom
-}
+for(i in seq_len(g))
+    p[i, ] <- rdirch(1, alpha)
+## We had this for when NIMBLE not available but not clear why that would ever be the case.
+    ## p[1,]  <- c(.12, .24, .10, .53, .01)
+    ## p[2,]  <- c(.2, .3, .05, .2, .25)
+    ## p[3,]  <- c(.05, .05, .10, .3, .5)
+    ## rmulti <- rmultinom
+
 
 for(i in seq_len(g))
     for(j in seq_len(m))
@@ -358,7 +355,8 @@ test_that("test of preventing overwriting of data values by inits:", {
     })
     xVal <- c(3, NA)
     xInit <- c(4, 4)
-    expect_warning(m <- nimbleModel(code, constants = list(x = xVal), inits = list(x = xInit)), "Ignoring non-NA values in inits for data nodes")
+
+    expect_message(m <- nimbleModel(code, constants = list(x = xVal), inits = list(x = xInit)), "Ignoring non-NA values in `inits` for data nodes")
     expect_equal(m$isData('x'), c(TRUE, FALSE), info = "'x' data flag is not set correctly in fourth test")
     expect_equal(m$x, c(xVal[1], xInit[2]), info = "value of 'x' not correctly set in fourth test")
     expect_equal(c('x[1]','x[2]') %in% m$getNodeNames(), c(TRUE, TRUE), info = "'x' nodes note correctly set in fourth test")
@@ -368,7 +366,7 @@ test_that("test of preventing overwriting of data values by inits:", {
         x[2] ~ dnorm(mu,1)
         mu ~ dnorm(0, 1)
     })
-    expect_warning(m <- nimbleModel(code, data = list(x = xVal), inits = list(x = xInit)), "Ignoring non-NA values in inits for data nodes")
+    expect_message(m <- nimbleModel(code, data = list(x = xVal), inits = list(x = xInit)), "Ignoring non-NA values in `inits` for data nodes")
     expect_equal(m$isData('x'), c(TRUE, FALSE), info = "'x' data flag is not set correctly in fifth test")
     expect_equal(m$x, c(xVal[1], xInit[2]), info = "value of 'x' not correctly set in fifth test")
     expect_equal(c('x[1]','x[2]') %in% m$getNodeNames(), c(TRUE, TRUE), info = "'x' nodes note correctly set in fifth test")
@@ -385,7 +383,29 @@ test_that("test of using dimensions of inits when dimension information not avai
     expect_error(m <- nimbleModel(code, data = list(y = rep(1, 3))), info = "expected error because dimension of mu is unknown")
     m <- nimbleModel(code, data = list(y = rep(1, 3)), inits = list(k = rep(1, 3), mu = 1:5))
     expect_equal(m$modelDef$dimensionsList$mu, 5, info = "dimension for mu not equal to that given in inits")
-    expect_warning(m <- nimbleModel(code, data = list(y = rep(1, 3)), inits = list(k = rep(1, 3), mu = 1:8), dimensions = list(mu = 5)), info = "expected error because of dimension mismatch")
+    expect_message(m <- nimbleModel(code, data = list(y = rep(1, 3)), inits = list(k = rep(1, 3), mu = 1:8), dimensions = list(mu = 5)), "Inconsistent dimensions between `inits` and `dimensions`")
+})
+
+test_that("test of using dimensions of inits different than LHS dimensions:", {
+    code <- nimbleCode({
+        for(i in 1:4){
+            y[i] ~ dnorm(S[site[i]], 1)
+            S[i] ~ dnorm(0,1)
+        }
+    })
+    expect_error(m <- nimbleModel(code, data = list(y = rnorm(4)), inits=list(site=rep(1,4), S=rnorm(2))),
+                 "dimensions specified are smaller")
+    
+    code <- nimbleCode({
+        for(i in 1:4){
+            y[i] ~ dnorm(S[site[i]], 1)
+            S[i] ~ dnorm(0,1)
+        }
+    })
+    expect_message(m <- nimbleModel(code, data = list(y = rnorm(4)), inits=list(site=rep(1,4), S=rnorm(10))),
+                   "dimensions specified are larger than model specification")
+    cm <- compileNimble(m)
+    expect_identical(m$S, cm$S)
 })
 
 test_that("test of using dimensions of data when dimension information not available:", {
@@ -398,7 +418,10 @@ test_that("test of using dimensions of data when dimension information not avail
     expect_error(m <- nimbleModel(code, data = list(y = rep(1, 3))), info = "expected error because dimension of mu is unknown")
     m <- nimbleModel(code, data = list(y = rep(1, 3), mu = 1:5), inits = list(k = rep(1, 3)))
     expect_equal(m$modelDef$dimensionsList$mu, 5, info = "dimension for mu not equal to that given in data")
+    nimbleOptions(verbose = FALSE)
     expect_error(m <- nimbleModel(code, data = list(y = rep(1, 3), mu = 1:8), inits = list(k = rep(1, 3)), dimensions = list(mu = 5)), info = "expected error because of dimension mismatch")  # error emitted by setData() and warning by assignDimensions()
+    nimbleOptions(verbose = TRUE)
+    
 })
 
 test_that("test of the handling of missing covariates:", {
@@ -529,7 +552,9 @@ test_that("test of using ragged arrays in a model:", {
     n <- c(2, 3)
     X <- matrix(1:6, nrow = 2)
     constants <- list(n = n, X = X)
+    nimbleOptions(verbose = FALSE)
     expect_silent(m <- nimbleModel(mc, constants = constants))
+    nimbleOptions(verbose = TRUE)
 })
 
 test_that("warnings for multiply-defined model nodes:", {
@@ -540,7 +565,7 @@ test_that("warnings for multiply-defined model nodes:", {
             mu ~ dnorm(mu0[i],1)
         }
     })
-    expect_warning(m <- nimbleModel(code), "'i' on the left-hand side of 'mu ~ ", fixed = TRUE)
+    expect_message(m <- nimbleModel(code), "Multiple definitions", fixed = TRUE)
     code <- nimbleCode({
         tmp ~ dnorm(0,1)
         for(i in 1:3) {
@@ -548,7 +573,7 @@ test_that("warnings for multiply-defined model nodes:", {
             mu ~ dnorm(0,1)
         }
     })
-    expect_warning(m <- nimbleModel(code), "'i' on the left-hand side of 'mu ~ ", fixed = TRUE)
+    expect_message(m <- nimbleModel(code), "Multiple definitions", fixed = TRUE)
     code <- nimbleCode({
         tmp ~ dnorm(0,1)
         for(i in 1:3) {
@@ -556,7 +581,7 @@ test_that("warnings for multiply-defined model nodes:", {
                 mu[i+2,1] ~ dnorm(0,1)
         }
     })
-    expect_warning(m <- nimbleModel(code), "'j' on the left-hand side of 'mu[i + 2, 1] ~ ", fixed = TRUE)
+    expect_message(m <- nimbleModel(code), "Multiple definitions", fixed = TRUE)
     code <- nimbleCode({
         tmp ~ dnorm(0,1)
         for(i in 1:3) {
@@ -565,7 +590,7 @@ test_that("warnings for multiply-defined model nodes:", {
                 mu[i+2,1,1] ~ dnorm(0,1)
         }
     })
-    expect_warning(m <- nimbleModel(code), "'j,k' on the left-hand side of 'mu[i + 2, 1, 1] ~ ", fixed = TRUE)
+    expect_message(m <- nimbleModel(code), "Multiple definitions", fixed = TRUE)
 })
 
 test_that("handling of missing indexes of expressions:", {
@@ -717,14 +742,11 @@ test_that("warning when RHS only nodes used as dynamic indexes", {
                    "Detected use of non-constant indexes")
     expect_message(m <- nimbleModel(code, data = list(k = rep(1,3))),
                    "Detected use of non-constant indexes")
-    ## Hack, but this allows detection of lack of warning given that
-    ## Travis and non-Travis behave differently in terms of silent vs. message.
-    warnOptions <- options()$warn
-    options(warn = 2)
-    ## if this were to warn, it would cause error
-    m <- nimbleModel(code, constants = list(k = rep(1,3)))
-    options(warn = warnOptions)
 
+    nimbleOptions(verbose = FALSE)
+    expect_silent(m <- nimbleModel(code, constants = list(k = rep(1,3))))
+    nimbleOptions(verbose = TRUE)
+    
     myfun <- nimbleFunction(run = function(x = double()) {
         returnType(double())
         return(1)
@@ -759,15 +781,13 @@ test_that("warning when RHS only nodes used as dynamic indexes", {
         for(i in 1:5)
             mu[i] ~ dnorm(0,1)
     })
-    ## Hack, but this allows detection of lack of warning given that
-    ## Travis and non-Travis behave differently in terms of silent vs. message.
-    warnOptions <- options()$warn
-    options(warn = 2)
-    ## if this were to warn, it would cause error
-    m <- nimbleModel(code, inits = list(k = rep(1,3)), constants = list(kk = 1:3))
-    m <- nimbleModel(code, inits = list(k = rep(1,3), kk = 1:3))
-    options(warn = warnOptions)
 
+    ## Checking that no warning; if this were to warn, it would cause error
+    nimbleOptions(verbose = FALSE)
+    expect_silent(m <- nimbleModel(code, inits = list(k = rep(1,3)), constants = list(kk = 1:3)))
+    expect_silent(m <- nimbleModel(code, inits = list(k = rep(1,3), kk = 1:3)))
+    nimbleOptions(verbose = TRUE)
+    
     code <- nimbleCode({
         for(i in 1:3) 
             y[i] ~ dnorm(mu[2, k[i]+j[i]],1)
@@ -801,13 +821,12 @@ test_that("warning when RHS only nodes used as dynamic indexes", {
     })
     expect_message(m <- nimbleModel(code, inits = list(k = rep(1,3))),
                    "Detected use of non-constant indexes")
-    ## Hack, but this allows detection of lack of warning given that
-    ## Travis and non-Travis behave differently in terms of silent vs. message.
-    warnOptions <- options()$warn
-    options(warn = 2)
-    ## if this were to warn, it would cause error
-    m <- nimbleModel(code, constants = list(k = rep(1,3)))
-    options(warn = warnOptions)
+
+    ## Checking that no warning; if this were to warn, it would cause error
+    nimbleOptions(verbose = FALSE)
+    expect_silent(m <- nimbleModel(code, constants = list(k = rep(1,3))))
+    nimbleOptions(verbose = TRUE)
+ 
 
     ## To test for problem raised in issue #996
     code <- nimbleCode({
@@ -839,42 +858,42 @@ test_that("handling of contiguous blocks", {
 
     indArr <- matrix(1, 3, 3)
     diag(indArr) <- c(2, 3, 1)
-    out <- makeVertexNamesFromIndexArray2(indArr, varName = 'y')
+    out <- nimble:::makeVertexNamesFromIndexArray2(indArr, varName = 'y')
     expect_identical(out$names, c('y[1%.s%3, 1%.s%3]', 'y[1, 1]', 'y[2, 2]'))
 
     indArr <- matrix(1, 3, 3)
     diag(indArr) <- c(2, 3, 4)
-    out <- makeVertexNamesFromIndexArray2(indArr, varName = 'y')
+    out <- nimble:::makeVertexNamesFromIndexArray2(indArr, varName = 'y')
     expect_identical(out$names, c('y[1%.s%3, 1%.s%3]', 'y[1, 1]', 'y[2, 2]', 'y[3, 3]'))
 
     indArr <- matrix(1, 4, 4)
     indArr[2:3, 1:3] <- 2
-    out <- makeVertexNamesFromIndexArray2(indArr, varName = 'y')
+    out <- nimble:::makeVertexNamesFromIndexArray2(indArr, varName = 'y')
     expect_identical(out$names, c('y[1%.s%4, 1%.s%4]', 'y[2:3, 1:3]'))
 
     indArr <- matrix(1, 4, 4)
     indArr[2:3, c(1,3)] <- indArr[2:3, c(1,3)] <- 2
-    out <- makeVertexNamesFromIndexArray2(indArr, varName = 'y')
+    out <- nimble:::makeVertexNamesFromIndexArray2(indArr, varName = 'y')
     expect_identical(out$names, c('y[1%.s%4, 1%.s%4]', 'y[2:3, 1%.s%3]'))
 
     indArr <- array(1, c(3, 3, 3))
     indArr[1:2, 1:2, 2] <- 2
-    out <- makeVertexNamesFromIndexArray2(indArr, varName = 'y')
+    out <- nimble:::makeVertexNamesFromIndexArray2(indArr, varName = 'y')
     expect_identical(out$names, c('y[1%.s%3, 1%.s%3, 1%.s%3]', 'y[1:2, 1:2, 2]'))
 
     indArr <- array(1, c(3, 3, 3))
     indArr[1:2, 1:2, 1:2] <- 2
-    out <- makeVertexNamesFromIndexArray2(indArr, varName = 'y')
+    out <- nimble:::makeVertexNamesFromIndexArray2(indArr, varName = 'y')
     expect_identical(out$names, c('y[1%.s%3, 1%.s%3, 1%.s%3]', 'y[1:2, 1:2, 1:2]'))
 
     indArr <- array(1, c(3, 3, 3))
     indArr[1, 1, 1] <- indArr[2, 2, 1] <- 2
-    out <- makeVertexNamesFromIndexArray2(indArr, varName = 'y')
+    out <- nimble:::makeVertexNamesFromIndexArray2(indArr, varName = 'y')
     expect_identical(out$names, c('y[1%.s%3, 1%.s%3, 1%.s%3]', 'y[1%.s%2, 1%.s%2, 1]'))
 
     indArr <- array(1, c(3, 3, 3))
     indArr[1, 1, 1] <- indArr[2, 2, 2] <- 2
-    out <- makeVertexNamesFromIndexArray2(indArr, varName = 'y')
+    out <- nimble:::makeVertexNamesFromIndexArray2(indArr, varName = 'y')
     expect_identical(out$names, c('y[1%.s%3, 1%.s%3, 1%.s%3]', 'y[1%.s%2, 1%.s%2, 1%.s%2]'))
 
     ## Another case that would formerly error out
@@ -915,6 +934,127 @@ test_that("dmvt usage", {
     m <- nimbleModel(code, inits = list(pr = diag(rep(2,n))), constants = list(n = n))	 
     expect_identical(m$getParam('y1[1:3]', 'prec'), diag(rep(2, n)))
     expect_equal(m$getParam('y2[1:3]', 'prec'), diag(rep(0.5, n)))
+})
+
+test_that("bad size or dimension of initial values", {
+
+    code <- nimbleCode({
+        for(i in 1:3)
+            z[i] ~ dnorm(0,1)
+        a[1:3,1:2] <- b[1:3,1:2]
+    })
+    
+    ## Bad dim for nimbleModel
+    expect_error(m <- nimbleModel(code, inits = list(z = matrix(rnorm(9), 3))),
+                 "inconsistent dimensionality")
+    
+    m <- nimbleModel(code)
+    expect_message(m$setInits(list(z = matrix(rnorm(9), 3))), "Incorrect size or dimension")
+    expect_output(cm <- compileNimble(m), "Incorrect number of dimensions")
+    expect_identical(cm$z, rep(0, 3))    
+    expect_message(cm$setInits(list(z = matrix(rnorm(9), 3))), "Incorrect size or dimension")
+    
+    expect_error(m <- nimbleModel(code, inits = list(b = rnorm(2))),
+          "inconsistent dimensionality")         
+    
+    m <- nimbleModel(code)
+    expect_message(m$setInits(list(b = rnorm(2))), "Incorrect size or dimension")
+    expect_output(cm <- compileNimble(m), "R object of different size")
+    expect_identical(cm$b, matrix(0, 3, 2))
+    expect_message(cm$setInits(list(b = rnorm(2))), "Incorrect size or dimension")
+
+    ## Too many values
+
+    ## For better or worse, length of 5 gets baked in based on inits.
+    ## TODO: do we want to reconsider whether this should error out?
+    expect_message(m <- nimbleModel(code, inits = list(z = rnorm(5))),
+                   "dimensions specified are larger than model specification")
+    cm <- compileNimble(m)
+    expect_identical(m$z, cm$z)
+
+    m <- nimbleModel(code)
+    expect_message(m$setInits(list(z=rnorm(5))), "Incorrect size or dimension")
+    expect_output(cm <- compileNimble(m), "R object of different size")
+    expect_identical(cm$z, rep(0, 3))
+    expect_message(cm$setInits(list(z=rnorm(5))), "Incorrect size or dimension")
+    
+    ### matrix
+
+    ## For better or worse, 4x2 gets baked in based on inits.
+    expect_message(m <- nimbleModel(code, inits = list(b = matrix(rnorm(8),4,2))),
+                   "dimensions specified are larger than model specification")
+    cm <- compileNimble(m)
+    expect_identical(m$b, cm$b)
+
+    m <- nimbleModel(code)
+    expect_message(m$setInits(list(b = matrix(rnorm(8),4,2))), "Incorrect size or dimension")
+    expect_output(cm <- compileNimble(m), "R object of different size")
+    expect_identical(cm$b, matrix(0, 3, 2))
+    expect_message(cm$setInits(list(b = matrix(rnorm(8),4,2))), "Incorrect size or dimension")
+    
+
+    ## Too few values
+
+    expect_error(m <- nimbleModel(code, inits = list(z = rnorm(2))),
+                 "dimensions specified are smaller")
+
+    m <- nimbleModel(code)
+    expect_message(m$setInits(list(z=rnorm(2))), "Incorrect size or dimension")
+    expect_output(cm <- compileNimble(m), "R object of different size")
+    expect_identical(cm$z, rep(0, 3))
+    expect_message(cm$setInits(list(z=rnorm(2))), "Incorrect size or dimension")
+    
+    ### matrix
+
+    expect_error(m <- nimbleModel(code, inits = list(b = matrix(rnorm(4),2,2))),
+                 "dimensions specified are smaller")
+
+    m <- nimbleModel(code)
+    expect_message(m$setInits(list(b = matrix(rnorm(4),2,2))), "Incorrect size or dimension")
+    expect_output(cm <- compileNimble(m), "R object of different size")
+    expect_identical(cm$b, matrix(0, 3, 2))
+    expect_message(cm$setInits(list(b = matrix(rnorm(4),2,2))), "Incorrect size or dimension")
+
+})
+
+test_that("Example of splitVertices bug from Issue 1268 works.", {
+  code <- nimbleCode({
+    for (i in 1:2) {
+      for (j in 1:2){
+        b[i,j] <- X[i, index[j]]
+      }
+    }
+    for (i in 1:2) {
+      y[i] <- sum(a[1:2, index[i]])
+    }
+  })
+  expect_no_error(Rmodel <- nimbleModel(code, constants = list(index=c(1,1))))
+})
+
+test_that("Reserved keywords as model vars are trapped.", {
+    code <- nimbleCode({
+        double ~ dnorm(0,1)
+    })
+    expect_error(m <- nimbleModel(code), "Found variable name that conflicts")
+})
+
+test_that("Warning printed when indexing info in user environment.", {
+    code <- nimbleCode({
+        for(i in 1:N)
+            y[i] ~ dnorm(0,1)
+    })
+    N <- 3
+    temporarilyAssignInGlobalEnv(N)
+    expect_message(m <- nimbleModel(code, constants = list(foo=3)),
+                   "Information has been found in the user's environment")
+})
+
+test_that("Informative error when using parentheses with model indexing.", {
+    code <- nimbleCode({
+        y[1,(1:2)] ~ ddirch(alpha[1:2])
+    })
+    m <- nimbleModel(code)
+    expect_error(cm <- compileNimble(m), "detected unexpected use of `\\(` in model code")
 })
 
 

@@ -24,37 +24,56 @@
 #include "nimble/nimDists.h"
 #include "nimble/RcppUtils.h"
 
+// These are used for compilation of DSL code and presumably belong elsewhere. Where?
 
-bool R_IsNA(NimArr<1, double> &P) {
+// Versions of R functions but returning bool not int
+// for use by vectorized `is.na{,n}`.
+// It's hard to track how `is.na{,n}` are processed in R,
+// but in `src/coerce.c` it appears that `do_isna{,n}`
+// call `ISNAN` and `R_isNaN` and doing that here gives
+// results that mimic `is.na{,n}` in R. `ISNAN` returns
+// `TRUE` for both `NA` and `NaN`.
+// Do we want bool returned or not?
+bool nimIsNA(double x) {
+  return (bool) ISNAN(x);
+}
+
+bool nimIsNaN(double x) {
+  return (bool) R_IsNaN(x);  
+}
+
+// Reduction versions of R functions for use by `any_na{,n}`.
+bool nimAnyNA(NimArr<1, double> &P) {
   int s = P.size();
-  for(int i = 0; i < s; ++i) if(R_IsNA(P[i])) return(true);
+  for(int i = 0; i < s; ++i) if(ISNAN(P[i])) return(true);
   return(false);
 }
 
-bool R_isnancpp(NimArr<1, double> &P) {
+bool nimAnyNaN(NimArr<1, double> &P) {
   int s = P.size();
-  for(int i = 0; i < s; ++i) if(R_isnancpp(P[i])) return(true);
+  for(int i = 0; i < s; ++i) if(R_IsNaN(P[i])) return(true);
   return(false);
 }
 
-template<int nDim, class T>
-NimArr<nDim, T> &nimArrCopyIfNeeded(NimArr<nDim, T> &orig, NimArr<nDim, T> &possibleCopy) {
-  if(orig.isMap()) {
-    //    printf("It is a map\n");
-    if(!isMapEntire<nDim, T>(orig)) {
-      // NOTE that a map that has offset != 0 always returns false.
-      // This could be improved.
-      // E.g. mu[1:3, i] could always be handled without copying
-      // currently isMapEntire returns FALSE if i > 0 because then offset != 0
-      // We would need more care with checking when to copy back at end of functions
-      // below.
-      //      printf("It is not an entire map\n");
-      possibleCopy = orig;
-      return(possibleCopy);
-    }
-  }
-  return(orig);
-}
+
+// template<int nDim, class T>
+// NimArr<nDim, T> &nimArrCopyIfNeeded(NimArr<nDim, T> &orig, NimArr<nDim, T> &possibleCopy) {
+//   if(orig.isMap()) {
+//     //    printf("It is a map\n");
+//     if(!isMapEntire<nDim, T>(orig)) {
+//       // NOTE that a map that has offset != 0 always returns false.
+//       // This could be improved.
+//       // E.g. mu[1:3, i] could always be handled without copying
+//       // currently isMapEntire returns FALSE if i > 0 because then offset != 0
+//       // We would need more care with checking when to copy back at end of functions
+//       // below.
+//       //      printf("It is not an entire map\n");
+//       possibleCopy = orig;
+//       return(possibleCopy);
+//     }
+//   }
+//   return(orig);
+// }
 
 double nimArr_dmulti(NimArr<1, double> &x, double size, NimArr<1, double> &prob, int give_log) {
   int K = prob.size();
@@ -156,7 +175,7 @@ double nimArr_dwish_chol(NimArr<2, double> &x, NimArr<2, double> &chol, double d
   double *xptr, *cholptr;
   NimArr<2, double> xCopy, cholCopy;
   int p = x.dim()[0];
-  if((x.dim()[1] != p) | (chol.dim()[0] != p) | (chol.dim()[1] != p)) {
+  if((x.dim()[1] != p) || (chol.dim()[0] != p) || (chol.dim()[1] != p)) {
     _nimble_global_output<<"Error in nimArr_dwish_chol: some dimensions are not right\n";
     nimble_print_to_R(_nimble_global_output);
   }
@@ -186,7 +205,7 @@ void nimArr_rwish_chol(NimArr<2, double> &ans, NimArr<2, double> &chol, double d
   if(!ans.isMap()) {
     ans.setSize(p, p);
   } else {
-    if((ans.dim()[0] != p) | (ans.dim()[1] != p)) {
+    if((ans.dim()[0] != p) || (ans.dim()[1] != p)) {
       _nimble_global_output<<"Error in nimArr_rwish_chol: ans sizes do not match chol.\n";
       nimble_print_to_R(_nimble_global_output);
     }
@@ -203,7 +222,7 @@ double nimArr_dinvwish_chol(NimArr<2, double> &x, NimArr<2, double> &chol, doubl
   double *xptr, *cholptr;
   NimArr<2, double> xCopy, cholCopy;
   int p = x.dim()[0];
-  if((x.dim()[1] != p) | (chol.dim()[0] != p) | (chol.dim()[1] != p)) {
+  if((x.dim()[1] != p) || (chol.dim()[0] != p) || (chol.dim()[1] != p)) {
     _nimble_global_output<<"Error in nimArr_dinvwish_chol: some dimensions are not right\n";
     nimble_print_to_R(_nimble_global_output);
   }
@@ -233,7 +252,7 @@ void nimArr_rinvwish_chol(NimArr<2, double> &ans, NimArr<2, double> &chol, doubl
   if(!ans.isMap()) {
     ans.setSize(p, p);
   } else {
-    if((ans.dim()[0] != p) | (ans.dim()[1] != p)) {
+    if((ans.dim()[0] != p) || (ans.dim()[1] != p)) {
       _nimble_global_output<<"Error in nimArr_rinvwish_chol: ans sizes do not match chol.\n";
       nimble_print_to_R(_nimble_global_output);
     }
@@ -245,7 +264,6 @@ void nimArr_rinvwish_chol(NimArr<2, double> &ans, NimArr<2, double> &chol, doubl
   if(ansptr != ans.getPtr()) {ans = ansCopy;} 
   //if(ans.isMap()) {ans = ansCopy;}
 }
-
 
 
 double nimArr_dmnorm_chol(NimArr<1, double> &x, NimArr<1, double> &mean, NimArr<2, double> &chol, double prec_param, int give_log, int overwrite_inputs) { 
@@ -260,7 +278,7 @@ double nimArr_dmnorm_chol(NimArr<1, double> &x, NimArr<1, double> &mean, NimArr<
     nimble_print_to_R(_nimble_global_output);
   }
   cholptr = nimArrCopyIfNeeded<2, double>(chol, cholCopy).getPtr();
-  if((chol.dim()[0] != n) | (chol.dim()[1] != n)) {
+  if((chol.dim()[0] != n) || (chol.dim()[1] != n)) {
     _nimble_global_output<<"Error in nimArr_dmnorm_chol: chol does not match size size of x.\n";
     nimble_print_to_R(_nimble_global_output);
   }
@@ -277,25 +295,137 @@ void nimArr_rmnorm_chol(NimArr<1, double> &ans, NimArr<1, double> &mean, NimArr<
   NimArr<2, double> cholCopy;
   double *ansPtr, *meanPtr, *cholPtr;
 
-  int n = mean.size();
+  int n_mean = mean.size();
+  int n_values = chol.dimSize(0);
   if(!ans.isMap()) {
-    ans.setSize(n);
+    ans.setSize(n_values);
   } else {
-    if(ans.size() != n) {
-      _nimble_global_output<<"Error in nimArr_rmnorm_chol: answer size ("<< ans.size() <<") does not match mean size ("<<n<<").\n";
+    if(ans.size() != n_values) {
+      _nimble_global_output<<"Error in nimArr_rmnorm_chol: answer size ("<< ans.size() <<") does not match mean size ("<<n_values<<").\n";
       nimble_print_to_R(_nimble_global_output);
     }
   }
+
+  // recycling rule for the mean.
+  if(n_mean < n_values) {
+    meanPtr = new double[n_values];
+    int i_mean = 0;
+    for(int i = 0; i < n_values; i++) {
+      meanPtr[i] = mean[i_mean++];
+      if(i_mean == n_mean) i_mean = 0;
+    }
+  } else meanPtr = nimArrCopyIfNeeded<1, double>(mean, meanCopy).getPtr();
+
   ansPtr = nimArrCopyIfNeeded<1, double>(ans, ansCopy).getPtr();
-  meanPtr = nimArrCopyIfNeeded<1, double>(mean, meanCopy).getPtr();
   cholPtr = nimArrCopyIfNeeded<2, double>(chol, cholCopy).getPtr();
-  rmnorm_chol(ansPtr, meanPtr, cholPtr, n, prec_param);
+  rmnorm_chol(ansPtr, meanPtr, cholPtr, n_values, prec_param);
 
   if(ansPtr != ans.getPtr()) {ans = ansCopy;} 
+  if(n_mean < n_values) 
+    delete [] meanPtr;
   // if(ans.isMap()) {
   //   ans = ansCopy;
   // }
 }
+
+// Drafted by GitHub copilot, modified by NIMBLE team.
+// Compute a vector of matrix inverse elements and log determinant of covariance matrix.
+// The log determinant is computed based on the Cholesky decomposition.
+// The output is in the format needed for dmnorm_inv_ld function.
+NimArr<1, double> PDinverse_logdet(NimArr<2, double> &mat) {
+    int n = mat.dimSize(0);
+    NimArr<1, double> out;
+    out.setSize(n * n + 1);
+
+    NimArr<2, double> matCopy;
+    double* matPtr = nimArrCopyIfNeeded<2, double>(mat, matCopy).getPtr();
+
+    // Use the internal function for the actual computation
+    PDinverse_logdet_internal(matPtr, out.getPtr(), n);
+
+    return out;
+}
+
+// drafted by GitHub copilot (begin)
+double nimArr_dmnorm_inv_ld(NimArr<1, double> &x, NimArr<1, double> &mean,
+                              NimArr<2, double> &mat,
+                              NimArr<1, double> &inv_ld, int prec_param,
+                              int give_log, int overwrite_inputs) {
+    double *xptr, *meanptr, *matptr, *inv_ld_ptr;
+    NimArr<1, double> xCopy, meanCopy, inv_ldCopy;
+    NimArr<2, double> matCopy;
+    xptr = nimArrCopyIfNeeded<1, double>(x, xCopy).getPtr();
+    int n = x.size();
+    meanptr = nimArrCopyIfNeeded<1, double>(mean, meanCopy).getPtr();
+    if(mean.size() != n) {
+        _nimble_global_output<<"Error in nimArr_dmnorm_inv_ld: mean and x are different sizes.\n";
+        nimble_print_to_R(_nimble_global_output);
+    }
+    inv_ld_ptr = nimArrCopyIfNeeded<1, double>(inv_ld, inv_ldCopy).getPtr();
+    if(inv_ld.size() != n*n + 1) {
+        _nimble_global_output<<"Error in nimArr_dmnorm_inv_ld: inv_ld size ("<<inv_ld.size()<<") does not match n*n+1 ("<<(n*n+1)<<").\n";
+        nimble_print_to_R(_nimble_global_output);
+    }
+    matptr = nimArrCopyIfNeeded<2, double>(mat, matCopy).getPtr();
+    if((mat.dim()[0] != n) || (mat.dim()[1] != n)) {
+        _nimble_global_output<<"Error in nimArr_dmnorm_inv_ld: mat does not match size of x.\n";
+        nimble_print_to_R(_nimble_global_output);
+    }
+
+    double ans;
+    ans = dmnorm_inv_ld(xptr, meanptr, matptr, inv_ld_ptr, n, prec_param, give_log, overwrite_inputs);
+    return(ans);
+}
+
+void nimArr_rmnorm_inv_ld(NimArr<1, double> &ans, NimArr<1, double> &mean, 
+                            NimArr<2, double> &mat, NimArr<1, double> &inv_ld, int prec_param) {
+    NimArr<1, double> ansCopy, meanCopy, inv_ldCopy;
+    NimArr<2, double> matCopy;
+    double *ansPtr, *meanPtr, *matPtr, *inv_ldPtr;
+
+  int n_mean = mean.size();
+  int n_values = mat.dimSize(0);
+  if(!ans.isMap()) {
+      ans.setSize(n_values);
+  } else {
+      if(ans.size() != n_values) {
+          _nimble_global_output<<"Error in nimArr_rmnorm_inv_ld: answer size ("<< ans.size() <<") does not match mean size ("<<n_values<<").\n";
+          nimble_print_to_R(_nimble_global_output);
+        }
+    }
+    // Actually inv_ld is not used, so don't bother checking it,
+    //  and thus allow to not form it if not needed otherwise.
+    // if(inv_ld.size() != n*n + 1) {
+    //     _nimble_global_output<<"Error in nimArr_rmnorm_inv_ld: inv_ld size ("<<inv_ld.size()<<") does not match n*n+1 ("<<(n*n+1)<<").\n";
+    //     nimble_print_to_R(_nimble_global_output);
+    // }
+    if(mat.dim()[0] != mat.dim()[1]) {
+        _nimble_global_output<<"Error in nimArr_rmnorm_inv_ld: mat is not square.\n";
+        nimble_print_to_R(_nimble_global_output);
+    }
+    if(n_mean < n_values) {
+      meanPtr = new double[n_values];
+      int i_mean = 0;
+      for(int i = 0; i < n_values; i++) {
+        meanPtr[i] = mean[i_mean++];
+        if(i_mean == n_mean) i_mean = 0;
+      }
+    } else meanPtr = nimArrCopyIfNeeded<1, double>(mean, meanCopy).getPtr();
+
+    ansPtr = nimArrCopyIfNeeded<1, double>(ans, ansCopy).getPtr();
+    matPtr = nimArrCopyIfNeeded<2, double>(mat, matCopy).getPtr();
+    inv_ldPtr = nimArrCopyIfNeeded<1, double>(inv_ld, inv_ldCopy).getPtr();
+
+    rmnorm_inv_ld(ansPtr, meanPtr, matPtr, inv_ldPtr, n_values, prec_param);
+
+    if(ansPtr != ans.getPtr()) {ans = ansCopy;}
+    if(n_mean < n_values) 
+    delete [] meanPtr;
+    // if(ans.isMap()) {
+    //   ans = ansCopy;
+    // }
+}
+// drafted by GitHub copilot (end)
 
 // Begin multivariate t
 
@@ -312,7 +442,7 @@ double nimArr_dmvt_chol(NimArr<1, double> &x, NimArr<1, double> &mu, NimArr<2, d
     nimble_print_to_R(_nimble_global_output);
   }
   cholptr = nimArrCopyIfNeeded<2, double>(chol, cholCopy).getPtr();
-  if((chol.dim()[0] != n) | (chol.dim()[1] != n)) {
+  if((chol.dim()[0] != n) || (chol.dim()[1] != n)) {
     _nimble_global_output<<"Error in nimArr_dmvt_chol: chol does not match size size of x.\n";
     nimble_print_to_R(_nimble_global_output);
   }
@@ -358,7 +488,7 @@ double nimArr_dlkj_corr_cholesky(NimArr<2, double> &x, double eta, int p, int gi
   NimArr<2, double> xCopy;
   xptr = nimArrCopyIfNeeded<2, double>(x, xCopy).getPtr();
 
-  if((x.dim()[0] != p) | (x.dim()[1] != p)) {
+  if((x.dim()[0] != p) || (x.dim()[1] != p)) {
     _nimble_global_output<<"Error in nimArr_dlkj_corr_cholesky: some dimensions are not right\n";
     nimble_print_to_R(_nimble_global_output);
   }
@@ -377,7 +507,7 @@ void nimArr_rlkj_corr_cholesky(NimArr<2, double> &ans, double eta, int p) {
   if(!ans.isMap()) {
     ans.setSize(p, p);
   } else {
-    if((ans.dim()[0] != p) | (ans.dim()[1] != p)) {
+    if((ans.dim()[0] != p) || (ans.dim()[1] != p)) {
       _nimble_global_output<<"Error in nimArr_rlkj_corr_cholesky: ans sizes do not match p.\n";
       nimble_print_to_R(_nimble_global_output);
     }

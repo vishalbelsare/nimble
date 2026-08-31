@@ -37,9 +37,10 @@
 
 using std::max;
 
-bool R_IsNA(double*, int);
-bool R_isnancpp(double*, int);
-bool R_FINITE_VEC(double*, int);
+bool R_IsNA_ANY(double*, int);
+bool R_IsNaN_ANY(double*, int);
+bool ISNAN_ANY(double*, int);
+bool R_FINITE_ANY(double*, int);
 
 extern "C" {
 // BLAS/LAPACK routines
@@ -47,6 +48,9 @@ extern "C" {
   // NIMBLE C wrappers called from R
   SEXP C_dmnorm_chol(SEXP, SEXP, SEXP, SEXP, SEXP); 
   SEXP C_rmnorm_chol(SEXP, SEXP, SEXP);
+  SEXP C_PDinverse_logdet(SEXP);
+  SEXP C_dmnorm_inv_ld(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP);
+  SEXP C_rmnorm_inv_ld(SEXP, SEXP, SEXP, SEXP);
   SEXP C_dmvt_chol(SEXP, SEXP, SEXP, SEXP, SEXP, SEXP); 
   SEXP C_rmvt_chol(SEXP, SEXP, SEXP, SEXP); 
   SEXP C_dlkj_corr_cholesky(SEXP, SEXP, SEXP, SEXP); 
@@ -94,6 +98,9 @@ void rdirch(double*, double*, int);
 
 double dmnorm_chol(double*, double*, double*, int, double, int, int);
 void rmnorm_chol(double *, double*, double*, int, double);
+void PDinverse_logdet_internal(double *matPtr, double *ans, int n);
+double dmnorm_inv_ld(double*, double*, double*, double*, int, int, int, int);
+void rmnorm_inv_ld(double*, double*, double*, double*, int, int);
 double dmvt_chol(double*, double*, double*, double, int, double, int, int);
 void rmvt_chol(double *, double*, double*, double, int, double);
 double dwish_chol(double*, double*, double, int, double, int, int);

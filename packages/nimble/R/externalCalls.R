@@ -20,6 +20,8 @@
 #' Note that a \code{nimbleExternalCall} can only be executed in a compiled \code{nimbleFunction}, not an uncompiled one.
 #' 
 #' If you have problems with spaces in file paths (e.g. for \code{oFile}), try compiling everything locally by including \code{dirName = "."} as an argument to \code{compileNimble}.
+#'
+#' Note that if you use \code{Rcpp} to generate object files, NIMBLE's use of the \code{--preclean} option to \code{R CMD SHLIB} can cause failures, so you may need to run \code{nimbleOptions(precleanCompilation=FALSE)} to prevent removal of needed object files.
 #' 
 #' @return A \code{nimbleFunction} that takes the indicated input arguments, calls \code{Cfun}, and returns the result.
 #'
@@ -135,6 +137,8 @@ nimbleExternalCall <- function(prototype, returnType, Cfun, headerFile, oFile, w
     ## Stick the "oFile", with .cpp extension as a kluge, into the nfMethodRC
     if(grepl(" ", oFile)) warning("The space in the oFile name may cause a problem.")
     environment(ans)$nfMethodRCobject$externalCPPincludes <- oFile
+    ## Turn off `--preclean` as this can cause deletion of files created by Rcpp.
+    setNimbleOption('precleanCompilation', FALSE)
     return(ans)
 }
 

@@ -13,9 +13,11 @@ Details of the WAIC measure for comparing models. NIMBLE implements an online
 WAIC algorithm, computed during the course of the MCMC iterations.
 }
 \details{
-To use WAIC, set \code{enableWAIC = TRUE} when configuring or (if not using
-\code{configureMCMC} building an MCMC) and set \code{WAIC = TRUE} when
-calling \code{nimbleMCMC} and optionally when calling \code{runMCMC}.
+To obtain WAIC, set \code{WAIC = TRUE} in nimbleMCMC. If using a more
+customized workflow, set \code{enableWAIC = TRUE} in \code{configureMCMC}
+or (if skipping \code{configureMCMC}) in \code{buildMCMC}, followed by
+setting \code{WAIC = TRUE} in \code{runMCMC}, if using runMCMC to manage
+sample generation.
 
 By default, NIMBLE calculates WAIC using an online algorithm that updates
 required summary statistics at each post-burnin iteration of the MCMC.
@@ -67,6 +69,12 @@ of Monte Carlo samples needed for stable calculation of WAIC.
 \code{thin}: Logical value for specifying whether to do WAIC calculations
 only on thinned samples (default is \code{FALSE}). Likely only useful for
 reducing computation when using marginal WAIC.
+
+\code{nburnin_extra}: Additional number of pre-thinning MCMC iterations
+to discard before calculating online WAIC. This number is discarded in
+addition to the usual MCMC burnin, \code{nburnin}. The purpose of this
+option is to allow a user to retain some samples for inspection without
+having those samples used for online WAIC calculation (default = 0).
 }
 
 \section{Extracting WAIC}{
@@ -106,6 +114,9 @@ marginal likelihoods if using marginal WAIC.
 
 \code{online}: Whether WAIC was calculated during MCMC sampling.
 
+\code{nburnin_extra}: Number of additional iterations discarded as burnin,
+in addition to original MCMC burnin.
+
 \code{WAIC_partialMC}, \code{lppd_partialMC}, \code{pWAIC_partialMC}: The
 computed marginal WAIC, lppd, and pWAIC based on fewer Monte Carlo
 simulations, for use in assessing the sensitivity of the WAIC calculation
@@ -140,7 +151,7 @@ elements of the control list, users can request a marginal WAIC (using a
 marginal likelihood that integrates over user-specified latent nodes) and/or
 a WAIC based on grouping observations (e.g., all observations in a cluster)
 to use joint density values. See the MCMC Chapter of the NIMBLE
-\href{https://r-nimble.org/html_manual/cha-mcmc.html}{User Manual}
+\href{https://r-nimble.org/manual/cha-mcmc.html}{User Manual}
 for more details.
 
 For more detail on the use of different predictive distributions, see Section

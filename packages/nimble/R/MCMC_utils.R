@@ -11,9 +11,9 @@
 #' @export
 decide <- function(logMetropolisRatio) {
     if(is.na(logMetropolisRatio)) return(FALSE)
-  if(logMetropolisRatio > 0) return(TRUE)
-  if(runif(1,0,1) < exp(logMetropolisRatio)) return(TRUE)
-  return(FALSE)
+    if(logMetropolisRatio > 0) return(TRUE)
+    if(runif(1,0,1) < exp(logMetropolisRatio)) return(TRUE)
+    return(FALSE)
 }
 
 #NOTE: DETAILS(WAS BLANK) REMOVED
@@ -28,11 +28,11 @@ decide <- function(logMetropolisRatio) {
 #' @param model An uncompiled or compiled NIMBLE model object.  
 #' @param mvSaved A modelValues object containing identical variables and logProb variables as the model. Can be created by \code{modelValues(model)}.
 #' @param target A character vector providing the target node.
-#' @param calcNodes A character vector representing a set of nodes in the model (and hence also the modelValues) object.  
+#' @param UNUSED Unused placeholder argument.
 #' @author Daniel Turek
 #' @export
 #' @details
-#' Calling decideAndJump(model, mvSaved, calcNodes) will generate a specialized nimbleFunction with four required numeric arguments:
+#' Calling decideAndJump(model, mvSaved, target) will generate a specialized nimbleFunction with four required numeric arguments:
 #' 
 #' modelLP1: The model log-probability associated with the newly proposed value(s)
 #' 
@@ -50,31 +50,49 @@ decide <- function(logMetropolisRatio) {
 #' -- Return a logical value, indicating whether the proposal was accepted
 decideAndJump <- nimbleFunction(
     name = 'decideAndJump',
-    setup = function(model, mvSaved, target, calcNodes) {
-        calcNodesNoSelf <- model$getDependencies(target, self = FALSE)
-        isStochCalcNodesNoSelf <- model$isStoch(calcNodesNoSelf)   ## should be made faster
-        calcNodesNoSelfDeterm <- calcNodesNoSelf[!isStochCalcNodesNoSelf]
-        calcNodesNoSelfStoch <- calcNodesNoSelf[isStochCalcNodesNoSelf]
+    setup = function(model, mvSaved, target, UNUSED) {    ## should remove UNUSED argument, after next release of nimbleSMC -DT July 2024
+        ccList <- mcmc_determineCalcAndCopyNodes(model, target)
+        copyNodesDeterm <- ccList$copyNodesDeterm; copyNodesStoch <- ccList$copyNodesStoch  # not used: calcNodes, calcNodesNoSelf
+        targetNames <- createNamesString(target)
     },
     run = function(modelLP1 = double(), modelLP0 = double(), propLP1 = double(), propLP0 = double()) {
-        logMHR <- modelLP1 - modelLP0 - propLP1 + propLP0
+        ## Check each one individually to catch case like `3 - Inf`.
+        logMHR <- checkLogProb(modelLP1, targetNames) - checkLogProb(modelLP0, targetNames) - checkLogProb(propLP1, targetNames) + checkLogProb(propLP0, targetNames)
         jump <- decide(logMHR)
         if(jump) {
             nimCopy(from = model, to = mvSaved, row = 1, nodes = target, logProb = TRUE)
-            nimCopy(from = model, to = mvSaved, row = 1, nodes = calcNodesNoSelfDeterm, logProb = FALSE)
-            nimCopy(from = model, to = mvSaved, row = 1, nodes = calcNodesNoSelfStoch, logProbOnly = TRUE)
+            nimCopy(from = model, to = mvSaved, row = 1, nodes = copyNodesDeterm, logProb = FALSE)
+            nimCopy(from = model, to = mvSaved, row = 1, nodes = copyNodesStoch, logProbOnly = TRUE)
         } else {
             nimCopy(from = mvSaved, to = model, row = 1, nodes = target, logProb = TRUE)
-            nimCopy(from = mvSaved, to = model, row = 1, nodes = calcNodesNoSelfDeterm, logProb = FALSE)
-            nimCopy(from = mvSaved, to = model, row = 1, nodes = calcNodesNoSelfStoch, logProbOnly = TRUE)
+            nimCopy(from = mvSaved, to = model, row = 1, nodes = copyNodesDeterm, logProb = FALSE)
+            nimCopy(from = mvSaved, to = model, row = 1, nodes = copyNodesStoch, logProbOnly = TRUE)
         }
         returnType(logical())
         return(jump)
     }
 )
 
+checkLogProb <- function(logProb, target) {
+   if(is.na(logProb))
+       return(-Inf)
+   if(logProb == Inf)
+         cat("MCMC sampling of ", target, " encountered a log probability density value of infinity. Results of sampling may not be valid.\n")
+   return(logProb)
+}
 
-
+## checkLogProb <- nimbleFunction(
+##     name = "checkLogProb",
+##     run = function(logProb = double()) {
+##         if(is.na(logProb))
+##             return(-Inf)
+##         if(logProb == Inf)
+##             print("MCMC sampling encountered a log probability density value of infinity. Results of sampling may not be valid.")
+##         return(logProb)
+##         returnType(double())
+            
+##     }
+## )
 
 
 #' Creates a nimbleFunction for setting the value of a scalar model node,
@@ -249,7 +267,8 @@ mcmc_generateControlListArgument <- function(control, controlDefaults) {
 
 
 
-mcmc_listContentsToStr <- function(ls, displayControlDefaults=FALSE, displayNonScalars=FALSE, displayConjugateDependencies=FALSE) {
+mcmc_listContentsToStr <- function(ls, displayControlDefaults=FALSE, displayNonScalars=FALSE, displayConjugateDependencies=FALSE,
+                                   removeCfunctions = TRUE, removeLengthZero = TRUE) {
     ##if(any(unlist(lapply(ls, is.function)))) warning('probably provided wrong type of function argument')
     if(!displayConjugateDependencies) {
         if(grepl('^conjugate_d', names(ls)[1])) ls <- ls[1]    ## for conjugate samplers, remove all 'dep_dnorm', etc, control elements (don't print them!)
@@ -270,7 +289,7 @@ mcmc_listContentsToStr <- function(ls, displayControlDefaults=FALSE, displayNonS
     for(i in seq_along(ls)) {
         controlName <- names(ls)[i]
         controlValue <- ls[[i]]
-        if(length(controlValue) == 0) next   ## remove length 0
+        if(length(controlValue) == 0 && removeLengthZero) next   ## remove length 0
         ##if(!displayControlDefaults)
         ##    if(controlName %in% names(defaultOptions))   ## skip default control values
         ##        if(identical(controlValue, defaultOptions[[controlName]])) next
@@ -288,7 +307,7 @@ mcmc_listContentsToStr <- function(ls, displayControlDefaults=FALSE, displayNonS
     ##if(length(ls2) == 1)
     ##    str <- paste0(str, ', default')
     str <- gsub('\"', '', str)
-    str <- gsub('c\\((.*?)\\)', '\\1', str)
+    if(removeCfunctions)   str <- gsub('c\\((.*?)\\)', '\\1', str)
     return(str)
 }
 
@@ -347,12 +366,12 @@ samplesSummary <- function(samples, round) {
 
 ## weed out missing indices from the monitors
 mcmc_processMonitorNames <- function(model, nodes) {
-    isLogProbName <- grepl('logProb', nodes)
+    isLogProbName <- grepl('^logProb_', nodes)
     expandedNodeNames <- model$expandNodeNames(nodes[!isLogProbName])
     origLogProbNames <- nodes[isLogProbName]
     expandedLogProbNames <- character()
     if(length(origLogProbNames) > 0) {
-        nodeName_fromLogProbName <- gsub('logProb_', '', origLogProbNames)
+        nodeName_fromLogProbName <- gsub('^logProb_', '', origLogProbNames)
         expandedLogProbNames <- model$modelDef$nodeName2LogProbName(nodeName_fromLogProbName)
     }
     return(c(expandedNodeNames, expandedLogProbNames))
@@ -371,12 +390,11 @@ mcmc_checkWAICmonitors_conditional <- function(model, monitors, dataNodes) {
                     "  Currently, the following parameters are not monitored: ",
                     paste0(badVars, collapse = ", ")))
     }
-    message('Monitored nodes are valid for WAIC.')
 }
 
-## Used through version 0.10.0 and likely to be used in some form once we re-introduce mWAIC
+## Used through version 0.10.0.
 mcmc_checkWAICmonitors <- function(model, monitors, dataNodes) {
-    monitoredDetermNodes <- model$expandNodeNames(monitors)[model$isDeterm(model$expandNodeNames(monitors))]
+    monitoredDetermNodes <- model$expandNodeNames(monitors)[model$isDeterm(model$expandNodeNames(monitors), includeRHSonly = TRUE)]
     if(length(monitoredDetermNodes) > 0) {
         monitors <- monitors[- which(monitors %in% model$getVarNames(nodes = monitoredDetermNodes))]
     }
@@ -402,9 +420,173 @@ mcmc_checkWAICmonitors <- function(model, monitors, dataNodes) {
         thisVars <- model$getVarNames(nodes = nextNodes)
         thisVars <- thisVars[!(thisVars %in% monitors)]
     }
-    message('Monitored nodes are valid for WAIC')
+    messageIfVerbose('  [Note] Monitored nodes are valid for WAIC.')
 }
 
+
+mcmc_createModelObject <- function(model, inits, nchains, setSeed, code, constants, data, dimensions, check, buildDerivs = FALSE, userEnv) {
+    ## create the Rmodel object using arguments provided to nimbleMCMC
+    if(missing(model)) {  ## model object not provided
+        if(!missing(inits)) {
+            if(!is.function(inits) && !is.list(inits)) stop('inits must be a function, a list of initial values, or a list (of length nchains) of lists of initial values')
+            if(is.list(inits) && (length(inits) > 0) && is.list(inits[[1]]) && (length(inits) != nchains)) stop('inits must be a function, a list of initial values, or a list (of length nchains) of lists of inital values')
+            if(is.function(inits)) {
+                if(is.numeric(setSeed) || setSeed) { if(is.numeric(setSeed)) set.seed(setSeed[1]) else set.seed(0) }
+                theseInits <- inits()
+            } else if(is.list(inits) && (length(inits) > 0) && is.list(inits[[1]])) {
+                theseInits <- inits[[1]]
+            } else theseInits <- inits
+            Rmodel    <- nimbleModel(code, constants, data, theseInits, dimensions = dimensions, check = check, buildDerivs = buildDerivs, userEnv = userEnv)    ## inits provided
+        } else Rmodel <- nimbleModel(code, constants, data,             dimensions = dimensions, check = check, buildDerivs = buildDerivs, userEnv = userEnv)    ## inits not provided
+    } else {              ## model object provided
+        if(!is.model(model)) stop('model argument must be a NIMBLE model object')
+        Rmodel <- if(is.Rmodel(model)) model else model$Rmodel
+        if(!is.Rmodel(Rmodel)) stop('something went wrong')
+    }
+    return(Rmodel)
+}
+
+
+## create the lists of calcNodes and copyNodes for use in MCMC samplers
+mcmc_determineCalcAndCopyNodes <- function(model, target) {
+    targetExpanded <- model$expandNodeNames(target)
+    modelPredictiveNodes <- model$modelDef$maps$graphID_2_nodeName[model$predictiveNodeIDs]   ## identical to: model$getNodeNames(predictiveOnly = TRUE)
+    targetExpandedPPbool <- targetExpanded %in% modelPredictiveNodes
+    targetAllPP <- all(targetExpandedPPbool)
+    targetAnyPP <- any(targetExpandedPPbool)
+    ## if a particular sampler is assigned *jointly to PP and non-PP* nodes, then we're going to bail
+    ## out and quit, if the option MCMCusePredictiveDependenciesInCalculations == FALSE.
+    ## this is an extreme corner-case, which I think will lead to problems.
+    if(targetAnyPP && !targetAllPP && !getNimbleOption('MCMCusePredictiveDependenciesInCalculations'))
+        stop('cannot assign samplers jointly to posterior predictive (PP) nodes and non-PP nodes, when MCMCusePredictiveDependenciesInCalculations option is FALSE', call. = FALSE)
+    ## if the sampler calling this, itself, is operating exclusively on posterior predictive nodes,
+    ## then regardless of how the rest of the model is being sampled (w.r.t. inclusion of posterior predictive nodes),
+    ## we'll include 'self' and all stochastic dependencies (the full markov blanket) in the calculations,
+    ## which necessarily are taking place entirely within a posterior predictive network of nodes.
+    ## this should lead to correct behaviour (consistent samples and joint posteriors) in all cases.
+    if(targetAllPP) {
+        ## when sampler is operating only on posterior predictive nodes,
+        ## then always include all predictive dependencies:
+        calcNodes <- model$getDependencies(target, includePredictive = TRUE)
+        calcNodesNoSelf <- model$getDependencies(target, self = FALSE, includePredictive = TRUE)
+        ##calcNodesPPomitted <- character()
+        copyNodes <- model$getDependencies(target, self = FALSE)
+    } else {
+        ## usual case:
+        calcNodes <- model$getDependencies(target)
+        calcNodesNoSelf <- model$getDependencies(target, self = FALSE)
+        ##calcNodesPPomitted <- setdiff(model$getDependencies(target, includePredictive = TRUE), calcNodes)
+        copyNodes <- calcNodesNoSelf
+    }
+    isStochCopyNodes <- model$isStoch(copyNodes)
+    copyNodesDeterm <- copyNodes[!isStochCopyNodes]
+    copyNodesStoch <- copyNodes[isStochCopyNodes]
+    ##
+    ccList <- list(
+        calcNodes = calcNodes,
+        calcNodesNoSelf = calcNodesNoSelf,
+        ##calcNodesPPomitted = calcNodesPPomitted,
+        copyNodesDeterm = copyNodesDeterm,
+        copyNodesStoch = copyNodesStoch
+    )
+    return(ccList)
+}
+
+
+
+mcmc_checkTargetAD <- function(model, targetNodes, samplerType) {
+    ## Check validity of AD-based samplers for target nodes.
+    ## Checks for:
+    ## - target with discrete or truncated distribution
+    ## - dependencies with truncated, dinterval, or dconstraint distribution
+    ##
+    targetDeclIDs_unique <- unique(model$getDeclID(targetNodes))
+    targetDeclInfo_unique <- model$getModelDef()$declInfo[targetDeclIDs_unique]
+
+    targetDists_unique <- unique(sapply(targetDeclInfo_unique, function(x) x$getDistributionName()))
+    targetDiscreteBool <- sapply(targetDists_unique, isDiscrete)
+    if(any(targetDiscreteBool)) {
+        stop(samplerType, ' sampler cannot operate on nodes with discrete-valued distributions: ',
+             paste0(targetDists_unique[targetDiscreteBool], collapse = ', '))
+    }
+
+    targetTruncatedBool <- any(sapply(targetDeclInfo_unique, function(x) x$isTruncated()))
+    if(any(targetTruncatedBool)) {
+        targetExpanded <- model$expandNodeNames(targetNodes)
+        stop(samplerType, ' sampler cannot operate on nodes with truncated prior distributions: ',
+             paste0(targetExpanded[model$isTruncated(targetExpanded)], collapse = ', '))
+    }
+
+    depNodes <- model$getDependencies(targetNodes, self = FALSE, stochOnly = TRUE)
+    depDeclIDs_unique <- unique(model$getDeclID(depNodes))
+    depDeclInfo_unique <- model$getModelDef()$declInfo[depDeclIDs_unique]
+
+    depTruncatedBool <- any(sapply(depDeclInfo_unique, function(x) x$isTruncated()))
+    if(any(depTruncatedBool)) {
+        stop(samplerType, ' sampler cannot operate since these dependent nodes have truncated distributions, which do not support AD calculations: ',
+             paste0(depNodes[model$isTruncated(depNodes)], collapse = ', '))
+    }
+    
+    depDists_unique <- sapply(depDeclInfo_unique, function(x) x$getDistributionName())
+
+    depIntervalBool <- (depDists_unique == 'dinterval')
+    if(any(depIntervalBool)) {
+        stop(paste0(samplerType, ' sampler cannot operate since these dependent nodes have `dinterval` distributions, which do not support AD calculations: ',
+                    paste0(depNodes[which(model$getDistribution(depNodes) == 'dinterval')], collapse = ', ')))
+    }
+
+    depConstraintBool <- (depDists_unique == 'dconstraint')
+    if(any(depConstraintBool)) {
+        stop(paste0(samplerType, ' sampler cannot operate since these dependent nodes have `dconstraint` distributions, which do not support AD calculations: ',
+                    paste0(depNodes[which(model$getDistribution(depNodes) == 'dconstraint')], collapse = ', ')))
+    }
+
+    ## Check for target with user-defined distribution (without AD support).
+    dists <- targetDists_unique
+    ADok <- rep(TRUE, length(dists))
+    for(i in seq_along(dists)) {
+        ADok[i] <- model$getModelDef()$checkADsupportForDistribution(dists[i])
+    }
+    if(!all(ADok))
+        stop(samplerType, ' sampler cannot operate on user-defined distributions that do not support AD calculations.  Try using `buildDerivs = TRUE` in the definition of the distributions: ',
+             paste0(dists[!ADok], collapse = ', '))
+}
+
+createNamesString <- function(target) {
+    if(length(target) == 1) return(target)
+    if(length(target) > 4) target <- c(target[1:4], "...")
+    return(paste0("{", paste(target, collapse = ', '), "}"))
+}
+
+# This is function which builds a new MCMCconf from an old MCMCconf
+# This is required to be able to a new C-based MCMC without recompiling
+makeNewConfFromOldConf <- function(oldMCMCconf){
+    newMCMCconf <- configureMCMC(oldMCMCconf$model, nodes = NULL, print = FALSE)
+    newMCMCconf$monitors <- oldMCMCconf$monitors
+    newMCMCconf$monitors2 <- oldMCMCconf$monitors2
+    newMCMCconf$thin <- oldMCMCconf$thin
+    newMCMCconf$thin2 <- oldMCMCconf$thin2
+    newMCMCconf$samplerConfs <- oldMCMCconf$samplerConfs
+    newMCMCconf$samplerExecutionOrder <- oldMCMCconf$samplerExecutionOrder
+    newMCMCconf$controlDefaults <- oldMCMCconf$controlDefaults
+    ##newMCMCconf$namedSamplerLabelMaker <- oldMCMCconf$namedSamplerLabelMaker  ## usage long since deprecated (Dec 2020)
+    newMCMCconf$mvSamples1Conf <- oldMCMCconf$mvSamples1Conf
+    newMCMCconf$mvSamples2Conf <- oldMCMCconf$mvSamples2Conf
+    return(newMCMCconf)
+}
+
+
+newSpacesFunction <- function(m) {
+    log10max <- floor(log10(m))
+    function(i) paste0(rep(' ', log10max-floor(log10(i))), collapse = '')
+}
+
+
+getBaseClassName <- function(nf) {
+    baseName <- environment(environment(nf)$contains)$className
+    if(is.null(baseName)) warning('cannot find base class name')
+    return(baseName)
+}
 
 
 

@@ -168,7 +168,15 @@ cppProjectClass <- setRefClass('cppProjectClass',
                                                               ifndefName = ifndefName)
                                        selfInclude <- if(is.character(con)) paste0('"', con, '.h', '"') else '"[FILENAME].h"'
                                        CPPincludes <- c(CPPincludes, selfInclude) ## selfInclude has to come last because Rinternals.h makes a name conflict with Eigen (this may be moot, 7/17)
-                                       
+
+                                       ## RHEL reports:
+                                       ## /usr/include/R/Rmath.h:210:15: error: 'std::Rf_beta' has not been declared
+                                       ## if math.h/Rmath.h are included later.
+                                       math <- which(CPPincludes == "<math.h>")
+                                       Rmath <- which(CPPincludes == "<Rmath.h>")
+                                       if(length(math) || length(Rmath))
+                                           CPPincludes <- c(CPPincludes[math], CPPincludes[Rmath], CPPincludes[-c(math,Rmath)])
+
                                        cppIfndefName <- paste0(ifndefName,'_CPP')
                                        cppFile <- cppCPPfileClass(filename = filename,
                                                                   includes = CPPincludes,
@@ -204,7 +212,9 @@ cppProjectClass <- setRefClass('cppProjectClass',
                                        ssDllName <- normalizePath(file.path(dirName, paste0(dllName, .Platform$dynlib.ext)), winslash = "\\", mustWork=FALSE)
                                        ssdSHLIBcmd <- normalizePath(file.path(R.home('bin'), 'R'),
                                                                           winslash = "\\", mustWork=FALSE)
-                                       ssdSHLIBargs <- paste('CMD SHLIB', cppName, '-o', basename(ssDllName))
+                                       ssdSHLIBargs <- paste('CMD SHLIB',
+                                                             ifelse(getNimbleOption('precleanCompilation'), '--preclean', ''),
+                                                             cppName, '-o', basename(ssDllName))
 
                                        logFile <- paste0(dllName, ".log")
                                        errorFile <- paste0(dllName, ".err")
@@ -232,14 +242,27 @@ cppProjectClass <- setRefClass('cppProjectClass',
                                        }
                                        return(dyn.load(basename(ssDllName), local = TRUE))
                                    },
-                                   compileDynamicRegistrations = function(showCompilerOutput = nimbleOptions('showCompilerOutput')) {
+                                   compileDynamicRegistrations = function(showCompilerOutput = getNimbleOption('showCompilerOutput')) {
                                        timeStamp <- format(Sys.time(), "%m_%d_%H_%M_%S")
                                        dllName <- paste0("dynamicRegistrations_", timeStamp)
                                        cppName <- paste0(dllName, ".cpp")
                                        writeDynamicRegistrationsDotCpp(cppName, dllName)
                                        nimbleUserNamespace$sessionSpecificDll <- compileStaticCode(dllName, cppName, showCompilerOutput)
                                    },
-                                   compileFile = function(names, showCompilerOutput = nimbleOptions('showCompilerOutput'),
+                                 compile_nimbleCppADbaseClass = function(showCompilerOutput = getNimbleOption('showCompilerOutput')) {
+                                   timeStamp <- format(Sys.time(), "%m_%d_%H_%M_%S")
+                                   dllName <- paste0("nimbleCppADbaseClass_", timeStamp)
+                                   cppName <- "nimbleCppADbaseClass.cpp"
+                                   origFile <-  system.file(file.path("include","nimble", cppName), package = "nimble")
+                                   if(nchar(origFile) == 0) {
+                                     warning("Could not compile nimbleCppADbaseClass. Subsequent steps will likely generate errors.")
+                                     return(NULL)
+                                   }
+                                   file.copy(origFile, cppName)
+                                   # We don't need this DLL, but we might as well hold onto it since it exists.
+                                   nimbleUserNamespace$nimbleCppADbaseClassDll <- compileStaticCode(dllName, cppName, showCompilerOutput)
+                                 },
+                                   compileFile = function(names, showCompilerOutput = getNimbleOption('showCompilerOutput'),
                                                           .useLib = UseLibraryMakevars) {
                                        names <- Rname2CppName(names)
                                        isWindows = (.Platform$OS.type == "windows")
@@ -263,7 +286,9 @@ cppProjectClass <- setRefClass('cppProjectClass',
                                            includes <- c(includes, Oincludes) ## normal operation will have Oincludes.
                                        }
                                        SHLIBcmd <- normalizePath(file.path(R.home('bin'), 'R'), winslash = "\\", mustWork=FALSE)
-                                       SHLIBargs <- paste('CMD SHLIB', paste(c(mainfiles, includes), collapse = ' '), '-o', basename(outputSOfile))
+                                       SHLIBargs <- paste('CMD SHLIB',
+                                                          ifelse(getNimbleOption('precleanCompilation'), '--preclean', ''),
+                                                          paste(c(mainfiles, includes), collapse = ' '), '-o', basename(outputSOfile))
 
                                        cur = getwd()
                                        setwd(dirName)
@@ -272,9 +297,15 @@ cppProjectClass <- setRefClass('cppProjectClass',
                                        if(is.null(nimbleUserNamespace$sessionSpecificDll)) {
                                            compileDynamicRegistrations(showCompilerOutput = showCompilerOutput)
                                        }
-
+                                       if(isTRUE(getNimbleOption("enableDerivs"))) {
+                                         if(any(grepl("^nimbleCppADbaseClass.o$", Oincludes))) {
+                                           if(is.null(nimbleUserNamespace$nimbleCppADbaseClassDll)) {
+                                             compile_nimbleCppADbaseClass(showCompilerOutput = showCompilerOutput)
+                                           }
+                                         }
+                                       }
                                        origSHLIBcmd <- SHLIBcmd
-                                       if(isTRUE(nimbleOptions('stopCompilationBeforeLinking'))) {## used only for testing, when we want to go quickly and skip linking and bail out
+                                       if(isTRUE(getNimbleOption('stopCompilationBeforeLinking'))) {## used only for testing, when we want to go quickly and skip linking and bail out
                                            ## get the dry run commands, run only those that contain -c for compile-only (don't link)
                                            ## this has only been tested with single .cpp files, not multiple .cpp files
                                            stop("Option 'stopCompilationBeforeLinking' has been disabled.")
@@ -284,10 +315,10 @@ cppProjectClass <- setRefClass('cppProjectClass',
                                            SHLIBcmd <- paste0(compileOnlyLines, collapse =  ";" )
                                        }
 
-                                       if(isTRUE(nimbleOptions('forceO1'))) { ## replace -On flags with -O1 to reduce compiler time due to higher optimization levels 
+                                       if(isTRUE(getNimbleOption('forceO1'))) { ## replace -On flags with -O1 to reduce compiler time due to higher optimization levels 
                                            ## If forceO1 is TRUE and we did not already strip out -c flags, do so now
                                            stop("Option 'forceO1' has been disabled.")
-                                           if(!isTRUE(nimbleOptions('stopCompilationBeforeLinking'))) {
+                                           if(!isTRUE(getNimbleOption('stopCompilationBeforeLinking'))) {
                                                dryRunCmd <- paste0(SHLIBcmd, " -n")
                                                dryRunResult <- system(dryRunCmd, intern = TRUE)
                                                compileOnlyLines <- dryRunResult[ grepl("-c", dryRunResult) ]
@@ -301,7 +332,7 @@ cppProjectClass <- setRefClass('cppProjectClass',
                                        logFile <- paste0(names[1], "_", format(Sys.time(), "%m_%d_%H_%M_%S"), ".log")
                                        errorFile <- paste0(names[1], "_", format(Sys.time(), "%m_%d_%H_%M_%S"), ".err")
 
-                                       if(nimbleOptions('pauseAfterWritingFiles')) browser()
+                                       if(getNimbleOption('pauseAfterWritingFiles')) browser()
                                        ## We formerly used ignore.stdout = !showCompilerOutput, ignore.stderr = !showCompilerOutput
                                        ## but when ignore.stdout and ignore.stderr are TRUE nothing gets printed to stdout and stderr so
                                        ## .log and .err files are empty.
@@ -326,7 +357,7 @@ cppProjectClass <- setRefClass('cppProjectClass',
                                                               class = c("SHLIBCreationError", "ShellError", "simpleError", "error", "condition")))
                                            }
                                        }
-                                       if(isTRUE(nimbleOptions()$stopCompilationBeforeLinking)) stop("safely stopping before linking", call.=FALSE)
+                                       if(isTRUE(getNimbleOption('stopCompilationBeforeLinking'))) stop("safely stopping before linking", call.=FALSE)
                                    },
                                    loadSO = function(name) {
                                        dll <<- dyn.load(getSOName(), local = TRUE)

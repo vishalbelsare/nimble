@@ -6,9 +6,11 @@
 \usage{
 nimbleFunctionVirtual(
   contains = NULL,
-  run = function() { },
+  run = function() {
+ },
   methods = list(),
-  name = NA
+  name = NA,
+  methodControl = list()
 )
 }
 \arguments{
@@ -18,7 +20,9 @@ nimbleFunctionVirtual(
 
 \item{methods}{An optional named list of NIMBLE functions that will also only be used for inspecting argument types and returnTypes.}
 
-\item{name}{An optional name used internally by the NIMBLE compiled.  This is usually omitted and NIMBLE provides one.}
+\item{name}{An optional name used internally by the NIMBLE compiler.  This is usually omitted and NIMBLE provides one.}
+
+\item{methodControl}{An optional list that allows specification of methods with defaults.}
 }
 \value{
 An object that can be passed as the \code{contains} argument to \code{nimbleFunction} or as the argument to \code{nimbleFunctionList}
@@ -27,7 +31,7 @@ An object that can be passed as the \code{contains} argument to \code{nimbleFunc
 define argument types and returnType for the \code{run} function and any \code{methods}, to be used in the \code{contains} argument of \code{nimbleFunction}
 }
 \details{
-See the NIMBLE \href{https://r-nimble.org/html_manual/cha-welcome-nimble.html}{User Manual} section on nimbleFunctionLists for explanation of how to use a virtual nimbleFunction.
+See the NIMBLE \href{https://r-nimble.org/manual/cha-welcome-nimble.html}{User Manual} section on nimbleFunctionLists for explanation of how to use a virtual nimbleFunction.
 }
 \seealso{
 \code{\link{nimbleFunction}}

@@ -3,7 +3,8 @@
 
 toEigenizeNoCalls <- c('dim',
                        'run.time',
-                       'nimOptimDefaultControl')
+                       'nimOptimDefaultControl',
+                       'checkLogProbWarn')
 
 toEigenizeYesCalls <- c(paste0('nimDiagonal', c('D','I','B')),
                         'diagonal',
@@ -23,6 +24,7 @@ toEigenizeYesCalls <- c(paste0('nimDiagonal', c('D','I','B')),
 
 toEigenizeMaybeCalls <- c('map',
                           c('decide',
+                            'checkLogProb',
                             'size',
                             'getsize',
                             'getNodeFunctionIndexedInfo',
@@ -32,7 +34,7 @@ toEigenizeMaybeCalls <- c('map',
                             'getPtr',
                             'startNimbleTimer'))
 
-toEigenizeUseRuleCalls <- c('nimPrint')
+toEigenizeUseRuleCalls <- c('nimPrint', 'nimCat')
 
 toEigenCalls <- c(
     makeCallList(binaryOperators, 'toEigenBinaryCwise'),             
@@ -48,8 +50,8 @@ toEigenCalls <- c(
     makeCallList(matrixFlipOperators, 'sizeTranspose'),
     makeCallList(matrixSolveOperators, 'sizeSolveOp'), 
     makeCallList(matrixSquareOperators, 'sizeUnaryCwiseSquare'),
-    nimOptim = 'toEigenOptim',
-    
+    makeCallList(c('nimOptim', 'nimIntegrate'), 'toEigenOptimIntegrate'),
+
     makeCallList(paste0('nimC',c('d','i','b')), 'toEigenConcatenate'),
     makeCallList(paste0('nimRep',c('d','i','b')), 'toEigenRep'),
     list('debugSizeProcessing' = 'sizeProxyForDebugging',
@@ -86,10 +88,10 @@ toEigenCalls <- c(
                                   scalar_distribution_qFuns,
                                   scalar_distribution_rFuns))
     ], 'toEigenScalarRecurse'),
-    makeCallList(c('isnan',
-                   'ISNAN',
-                   'ISNA'), 'toEigenScalarRecurse'),
+    makeCallList(c('nim_IsNA',
+                   'nim_IsNaN'), 'toEigenScalarRecurse'),
     makeCallList(c('nimArr_dmnorm_chol',
+                   'nimArr_dmnorm_inv_ld',
                    'nimArr_dmvt_chol',
                    'nimArr_dlkj_corr_cholesky',
                    'nimArr_dwish_chol',
@@ -99,6 +101,7 @@ toEigenCalls <- c(
                    'nimArr_dinterval',
                    'nimArr_ddirch'), 'toEigenScalarRecurse'),
     makeCallList(c('nimArr_rmnorm_chol',
+                   'nimArr_rmnorm_inv_ld',
                    'nimArr_rmvt_chol',
                    'nimArr_rlkj_corr_cholesky',
                    'nimArr_rwish_chol',
@@ -360,7 +363,7 @@ toEigenGetBound <- function(code, symTab, typeEnv) {
     return(list())
 }
 
-toEigenOptim <- function(code, symTab, typeEnv) {
+toEigenOptimIntegrate <- function(code, symTab, typeEnv) {
     code$toEigenize <- 'no'
     return(list())
 }

@@ -5,8 +5,6 @@ options(warn = 1)
 nimbleVerboseSetting <- nimbleOptions('verbose')
 nimbleOptions(verbose = FALSE)
 
-context("Testing of core R functions in NIMBLE code")
-
 ## fix result_type in nimbleEigen.h
 
 cTests <- list(
@@ -420,10 +418,14 @@ seqTests <- list(
     ##1
     list(name = "1:5", expr = quote(out <- 1:5), args = list(),
          setArgVals = quote({}), outputType = quote(double(1)), checkEqual = TRUE),
+    list(name = "seq(1, 10)", expr = quote(out <- seq(1, 10)), args = list(),
+         setArgVals = quote({}), outputType = quote(double(1)), checkEqual = TRUE),
     list(name = "seq(.1, 10, by = .1)", expr = quote(out <- seq(.1, 10, by = .1)), args = list(),
-         setArgVals = quote({}), outputType = quote(double(1))),
+         setArgVals = quote({}), outputType = quote(double(1)), checkEqual = TRUE), # N.B. Seemingly some change on MacOS as of 2024-06-02 created trivial non-identicalness, so check only equality.
+    list(name = "seq(1, arg1, by = arg2)", expr = quote(out <- seq(1, arg1, by = arg2)), args = list(arg1 = quote(integer()), arg2 = quote(integer())),
+         setArgVals = quote({arg1 <- 8; arg2 <- 2}), outputType = quote(double(1))),
     list(name = "seq(.1, 10, length.out = 11)", expr = quote(out <- seq(.1, 10, length.out = 11)), args = list(),
-         setArgVals = quote({}), outputType = quote(double(1))),
+         setArgVals = quote({}), outputType = quote(double(1)), checkEqual = TRUE), # N.B. Update to Eigen 3.4.0 created trivial numerical non-identicalness, so check only equality
     list(name = "seq(.1, by = 10, length.out = 11)", expr = quote(out <- seq(.1, by = 10, length.out = 11)), args = list(),
          setArgVals = quote({}), outputType = quote(double(1))),
     list(name = "seq(.1, 10, length.out = 11) in expression", expr = quote(out <- log(seq(.1, 10, length.out = 11)) + 2 + rep(1, 11)), args = list(),
@@ -752,10 +754,33 @@ logicalTests <- list(
          outputType = quote(double(2)), checkEqual = TRUE)
 )
 
+isNaTests <- list(
+    list(name = "use is.na", expr = quote(out <- is.na(arg1)),
+         args = list(arg1 = quote(double(1))),
+         setArgVals = quote({arg1 <- rnorm(5); arg1[2] <- NA; arg1[3] <- NaN}),
+         outputType = quote(logical(1))),
+    list(name = "use is.nan", expr = quote(out <- is.nan(arg1)),
+         args = list(arg1 = quote(double(1))),
+         setArgVals = quote({arg1 <- rnorm(5); arg1[2] <- NA; arg1[3] <- NaN}),
+         outputType = quote(logical(1)))
+)
+
 anyNaTests <- list(
-    list(name = "use any_na", expr = quote(out <- any_na(arg1)),
+    list(name = "use any_na with NA", expr = quote(out <- any_na(arg1)),
          args = list(arg1 = quote(double(1))),
          setArgVals = quote({arg1 <- rnorm(5); arg1[2] <- NA}),
+         outputType = quote(logical(0))),
+    list(name = "use any_na with NaN", expr = quote(out <- any_na(arg1)),
+         args = list(arg1 = quote(double(1))),
+         setArgVals = quote({arg1 <- rnorm(5); arg1[2] <- NaN}),
+         outputType = quote(logical(0))),
+    list(name = "use any_nan with NA", expr = quote(out <- any_nan(arg1)),
+         args = list(arg1 = quote(double(1))),
+         setArgVals = quote({arg1 <- rnorm(5); arg1[2] <- NA}),
+         outputType = quote(logical(0))),
+    list(name = "use any_nan with NaN", expr = quote(out <- any_nan(arg1)),
+         args = list(arg1 = quote(double(1))),
+         setArgVals = quote({arg1 <- rnorm(5); arg1[2] <- NaN}),
          outputType = quote(logical(0)))
 )
 
